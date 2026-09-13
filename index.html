@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FDEC Sprinkler Department — On-Call Rotation</title>
+<style>
+  :root{
+    --navy:#1B2A4A; --navy-2:#24365c; --red:#C1121C;
+    --red-soft:#F7DDDD; --blue-soft:#DCE6F1; --grey:#F2F2F2;
+    --line:#d5dae3; --ink:#1a1f2b; --muted:#5c6472;
+    --now:#DCF0DC; --now-bar:#2e8b3d;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{margin:0;font-family:Arial,Helvetica,sans-serif;color:var(--ink);background:#eef1f5;line-height:1.5;}
+  .sheet{max-width:1100px;margin:0 auto;background:#fff;min-height:100vh;box-shadow:0 0 24px rgba(20,30,55,.08);}
+
+  header.mast{background:var(--navy);color:#fff;padding:26px 32px 22px;border-bottom:5px solid var(--red);}
+  .company{font-size:26px;font-weight:800;letter-spacing:.3px;margin:0;}
+  .company .co{color:#ff6b6b;}
+  .dept{margin:2px 0 0;font-size:15px;font-weight:600;color:#c7d2e6;}
+  .period{margin:14px 0 0;font-size:13.5px;color:#aab8d4;}
+  .period strong{color:#fff;font-weight:700;}
+
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 32px;background:var(--grey);border-bottom:1px solid var(--line);}
+  .toolbar .spacer{flex:1;}
+  button{font-family:inherit;font-size:13px;font-weight:700;border:1px solid var(--navy);background:#fff;color:var(--navy);padding:8px 14px;border-radius:4px;cursor:pointer;}
+  button:hover{background:var(--navy);color:#fff;}
+  button.danger{border-color:var(--red);color:var(--red);}
+  button.danger:hover{background:var(--red);color:#fff;}
+  button:focus-visible{outline:3px solid #7aa2ff;outline-offset:2px;}
+  .hint{font-size:12.5px;color:var(--muted);}
+
+  .yearbar{display:flex;align-items:center;gap:0;padding:16px 32px 0;}
+  .yearbtn{border:1px solid var(--navy);background:#fff;color:var(--navy);font-weight:800;font-size:15px;padding:9px 22px;cursor:pointer;}
+  .yearbtn:first-child{border-radius:5px 0 0 5px;}
+  .yearbtn:last-child{border-radius:0 5px 5px 0;border-left:none;}
+  .yearbtn[aria-pressed="true"]{background:var(--navy);color:#fff;}
+  .yearbtn:focus-visible{outline:3px solid #7aa2ff;outline-offset:2px;}
+  .nowchip{margin-left:14px;font-size:12.5px;color:var(--muted);}
+  .nowchip b{color:var(--navy);}
+
+  .wrap{padding:14px 32px 8px;overflow-x:auto;}
+  table{border-collapse:collapse;width:100%;font-size:14px;}
+  caption{text-align:left;font-size:13px;color:var(--muted);padding-bottom:8px;}
+  thead th{background:var(--navy);color:#fff;font-size:12.5px;font-weight:700;text-align:left;padding:11px 12px;border:1px solid var(--navy-2);}
+  tbody td{padding:8px 12px;border:1px solid var(--line);vertical-align:middle;}
+  tbody tr:nth-child(odd) td{background:var(--blue-soft);}
+  tbody tr:nth-child(even) td{background:#fff;}
+  td.wk{font-weight:700;text-align:center;width:64px;color:var(--navy);}
+  td.date{white-space:nowrap;width:118px;color:#333;}
+  td.assign{width:150px;}
+  select{font-family:inherit;font-size:13.5px;font-weight:700;color:var(--navy);width:100%;padding:6px;border:1px solid var(--line);border-radius:4px;background:#fff;}
+  select:focus-visible{outline:3px solid #7aa2ff;outline-offset:1px;}
+  .role1 select{border-left:4px solid var(--red);}
+  .role2 select{border-left:4px solid var(--navy);}
+  input.note{font-family:inherit;font-size:13px;color:#333;width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:#fff;}
+  input.note::placeholder{color:#aab1bd;}
+  tr.conflict td{background:var(--red-soft)!important;}
+  .flag{color:var(--red);font-weight:700;font-size:11px;display:block;margin-top:3px;}
+
+  tr.now td{background:var(--now)!important;}
+  tr.now td.wk{position:relative;}
+  tr.now td.wk::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--now-bar);}
+  .nowtag{display:inline-block;background:var(--now-bar);color:#ffffff;font-size:10px;font-weight:800;padding:2px 6px;border-radius:3px;margin-top:4px;letter-spacing:.3px;}
+
+  .callout{margin:18px 32px 6px;background:var(--red-soft);border:2px solid var(--red);border-left:8px solid var(--red);border-radius:5px;padding:14px 18px;color:#7a0d14;font-weight:700;font-size:14.5px;}
+
+  .lower{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;padding:20px 32px 8px;}
+  @media (max-width:900px){.lower{grid-template-columns:1fr;}}
+  .panel h2{font-size:13px;font-weight:700;color:#fff;background:var(--navy);margin:0;padding:9px 14px;border-radius:5px 5px 0 0;}
+  .panel .body{border:1px solid var(--line);border-top:none;border-radius:0 0 5px 5px;padding:14px 16px;background:#fff;}
+  ul.notes{margin:0;padding-left:18px;}
+  ul.notes li{margin:0 0 9px;font-size:13px;color:#333;}
+  ul.notes li:last-child{margin-bottom:0;}
+
+  ul.roster{list-style:none;margin:0 0 12px;padding:0;}
+  ul.roster li{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);}
+  ul.roster li:last-child{border-bottom:none;}
+  ul.roster .rname{flex:1;font-weight:700;color:var(--navy);font-size:13.5px;}
+  ul.roster button.rm{border-color:var(--red);color:var(--red);padding:4px 10px;font-size:12px;}
+  ul.roster button.rm:hover{background:var(--red);color:#fff;}
+  .addrow{display:flex;gap:8px;margin-top:4px;}
+  .addrow input{flex:1;font-family:inherit;font-size:13.5px;padding:7px 9px;border:1px solid var(--line);border-radius:4px;}
+  .addrow input:focus-visible{outline:3px solid #7aa2ff;outline-offset:1px;}
+  .rosterhint{font-size:11.5px;color:var(--muted);margin-top:10px;}
+
+  table.tally{width:100%;border-collapse:collapse;font-size:13px;}
+  table.tally th{background:var(--red);color:#fff;font-size:11.5px;padding:8px 8px;text-align:center;border:1px solid #a5121a;}
+  table.tally td{padding:7px 8px;border:1px solid var(--line);text-align:center;}
+  table.tally td.name{text-align:left;font-weight:700;color:var(--navy);}
+  table.tally tr:nth-child(odd) td{background:var(--blue-soft);}
+  .bal{font-size:12px;color:var(--muted);margin-top:8px;}
+  .tallycap{font-size:11.5px;color:var(--muted);margin:0 0 8px;}
+
+  footer{padding:18px 32px 30px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:14px;}
+  @media print{
+    body{background:#fff;}
+    .toolbar,#rosterPanel{display:none;}
+    .yearbar .yearbtn:not([aria-pressed="true"]){display:none;}
+    .sheet{box-shadow:none;max-width:none;}
+    select,input.note{border:none;-webkit-appearance:none;appearance:none;background:transparent;}
+    tr.now td{background:var(--now)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header class="mast">
+    <h1 class="company">FIRE DEFENSE EQUIPMENT CO.<span class="co">, INC.</span></h1>
+    <p class="dept">Sprinkler Department — On-Call Rotation</p>
+    <p class="period">Continuous weekly rotation, Sunday through Saturday &nbsp;·&nbsp; <strong>Sept 13, 2026 – Dec 31, 2027</strong></p>
+  </header>
+
+  <div class="toolbar">
+    <button id="jumpNow" type="button">Jump to current week</button>
+    <button id="printBtn" type="button">Print / Save PDF</button>
+    <button id="resetBtn" class="danger" type="button">Reset everything</button>
+    <span class="spacer"></span>
+    <span class="hint">Edits save automatically in this browser.</span>
+  </div>
+
+  <div class="yearbar">
+    <button class="yearbtn" data-year="2026" type="button">2026</button>
+    <button class="yearbtn" data-year="2027" type="button">2027</button>
+    <span class="nowchip" id="nowChip"></span>
+  </div>
+
+  <div class="wrap">
+    <table id="rotation">
+      <caption id="tableCap"></caption>
+      <thead>
+        <tr>
+          <th style="text-align:center;">Week</th>
+          <th>Start (Sun)</th>
+          <th>End (Sat)</th>
+          <th>First Up</th>
+          <th>Second Up</th>
+          <th>Notes / Vacation / Swaps</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    If both the First Up and Second Up technicians are unavailable, all technicians will be contacted.
+  </div>
+
+  <div class="lower">
+    <section class="panel">
+      <h2>How the rotation works</h2>
+      <div class="body">
+        <ul class="notes">
+          <li><strong>First Up</strong> is the primary on-call technician. <strong>Second Up</strong> is the backup if First Up is unavailable.</li>
+          <li>For vacation or personal time, note it and reassign that week's dropdowns. Keep two different techs per week; a duplicate is flagged red.</li>
+          <li>The current week is highlighted. Use the year buttons to switch between 2026 and 2027.</li>
+          <li>The rotation runs continuously from 2026 into 2027, advancing one technician each week.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel" id="rosterPanel">
+      <h2>Technician roster</h2>
+      <div class="body">
+        <ul class="roster" id="rosterList"></ul>
+        <div class="addrow">
+          <input id="newTech" type="text" placeholder="Add technician name…" aria-label="New technician name">
+          <button id="addTech" type="button">Add</button>
+        </div>
+        <p class="rosterhint">Roster changes apply to upcoming weeks only. Past and current weeks keep their assignments.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>On-call week tally</h2>
+      <div class="body">
+        <p class="tallycap" id="tallyCap"></p>
+        <table class="tally">
+          <thead><tr><th style="text-align:left;">Technician</th><th>First</th><th>Second</th><th>Total</th></tr></thead>
+          <tbody id="tallyRows"></tbody>
+        </table>
+        <p class="bal" id="balNote"></p>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    Fire Defense Equipment Co., Inc. — Sprinkler Department. Continuous on-call rotation. Assignments, notes, and roster are stored locally in your browser. "Reset everything" restores the default roster and regenerates the fair rotation.
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var DEFAULT_ROSTER = ["Tim H.","Owen H.","Eric O.","Jacob K.","Corey W."];
+  var START = new Date(2026,8,13); // Sep 13 2026 (month 0-based)
+  var END = new Date(2027,11,31);
+  var KEY = "fdec_oncall_v2";
+
+  function buildWeeks(){
+    var weeks=[], d=new Date(START.getFullYear(),START.getMonth(),START.getDate());
+    while(d<=END){
+      var s=new Date(d), e=new Date(d); e.setDate(e.getDate()+6);
+      weeks.push({start:s,end:e});
+      d.setDate(d.getDate()+7);
+    }
+    return weeks;
+  }
+  var WEEKS = buildWeeks();
+
+  function fmt(dt){
+    return String(dt.getMonth()+1).padStart(2,"0")+"/"+String(dt.getDate()).padStart(2,"0")+"/"+dt.getFullYear();
+  }
+
+  function genAssignments(roster){
+    var n=roster.length;
+    return WEEKS.map(function(_,i){
+      return { first: roster[i % n], second: roster[(i+1) % n], note:"" };
+    });
+  }
+  function freshState(){
+    var roster = DEFAULT_ROSTER.slice();
+    return { roster:roster, assign:genAssignments(roster) };
+  }
+  function load(){
+    try{
+      var raw=localStorage.getItem(KEY);
+      if(raw){
+        var d=JSON.parse(raw);
+        if(d && Array.isArray(d.roster) && Array.isArray(d.assign) && d.assign.length===WEEKS.length) return d;
+      }
+    }catch(e){}
+    return freshState();
+  }
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+
+  var state = load();
+
+  function currentWeekIndex(){
+    var today=new Date(); today.setHours(0,0,0,0);
+    for(var i=0;i<WEEKS.length;i++){
+      var s=new Date(WEEKS[i].start); s.setHours(0,0,0,0);
+      var e=new Date(WEEKS[i].end); e.setHours(23,59,59,999);
+      if(today>=s && today<=e) return i;
+    }
+    return -1;
+  }
+  var NOW_I = currentWeekIndex();
+
+  var viewYear = (function(){
+    var y=new Date().getFullYear();
+    if(y===2026||y===2027) return y;
+    return (NOW_I>=0)? WEEKS[NOW_I].start.getFullYear() : 2026;
+  })();
+
+  function escapeHtml(s){return String(s||"").replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+
+  // Build options; always include the currently-assigned value even if it's no longer on the roster
+  // (so historical/edited weeks referencing a removed tech still display correctly).
+  function options(sel){
+    var list = state.roster.slice();
+    if(sel && list.indexOf(sel)===-1) list.push(sel+" (removed)");
+    return list.map(function(t){
+      var val = t.replace(/ \(removed\)$/,"");
+      return '<option value="'+escapeHtml(val)+'"'+(val===sel?" selected":"")+'>'+escapeHtml(t)+'</option>';
+    }).join("");
+  }
+
+  function render(){
+    document.querySelectorAll(".yearbtn").forEach(function(b){
+      b.setAttribute("aria-pressed", String(+b.dataset.year===viewYear));
+    });
+
+    var chip=document.getElementById("nowChip");
+    if(NOW_I>=0){
+      var w=WEEKS[NOW_I];
+      chip.innerHTML='Current week: <b>'+fmt(w.start)+' – '+fmt(w.end)+'</b> &nbsp;(1st: '+escapeHtml(state.assign[NOW_I].first)+', 2nd: '+escapeHtml(state.assign[NOW_I].second)+')';
+    }else{
+      chip.textContent="Today is outside the rotation range.";
+    }
+
+    document.getElementById("tableCap").textContent =
+      "Showing "+viewYear+". Assign First Up (primary) and Second Up (backup) per week; use notes for vacation, personal time, or swaps.";
+
+    var rows=document.getElementById("rows"); rows.innerHTML="";
+    WEEKS.forEach(function(w,i){
+      if(w.start.getFullYear()!==viewYear) return;
+      var a=state.assign[i];
+      var conflict=(a.first===a.second);
+      var isNow=(i===NOW_I);
+      var tr=document.createElement("tr");
+      tr.className=(conflict?"conflict ":"")+(isNow?"now":"");
+      if(isNow) tr.id="nowrow";
+      tr.innerHTML=
+        '<td class="wk">'+(i+1)+(isNow?'<span class="nowtag">THIS WEEK</span>':'')+'</td>'+
+        '<td class="date">'+fmt(w.start)+'</td>'+
+        '<td class="date">'+fmt(w.end)+'</td>'+
+        '<td class="assign role1"><select data-i="'+i+'" data-role="first" aria-label="First up week '+(i+1)+'">'+options(a.first)+'</select>'+
+          (conflict?'<span class="flag">Same tech in both roles</span>':'')+'</td>'+
+        '<td class="assign role2"><select data-i="'+i+'" data-role="second" aria-label="Second up week '+(i+1)+'">'+options(a.second)+'</select></td>'+
+        '<td><input class="note" type="text" data-i="'+i+'" data-role="note" value="'+escapeHtml(a.note)+'" placeholder="Vacation, personal time, swap…" aria-label="Notes week '+(i+1)+'"></td>';
+      rows.appendChild(tr);
+    });
+
+    renderRoster();
+    renderTally();
+  }
+
+  function renderRoster(){
+    var ul=document.getElementById("rosterList"); ul.innerHTML="";
+    state.roster.forEach(function(t){
+      var li=document.createElement("li");
+      li.innerHTML='<span class="rname">'+escapeHtml(t)+'</span>'+
+        '<button class="rm" type="button" data-name="'+escapeHtml(t)+'" aria-label="Remove '+escapeHtml(t)+'">Remove</button>';
+      ul.appendChild(li);
+    });
+  }
+
+  function renderTally(){
+    var first={}, second={};
+    state.roster.forEach(function(t){first[t]=0;second[t]=0;});
+    WEEKS.forEach(function(w,i){
+      if(w.start.getFullYear()!==viewYear) return;
+      var a=state.assign[i];
+      if(first.hasOwnProperty(a.first)) first[a.first]++;
+      if(second.hasOwnProperty(a.second)) second[a.second]++;
+    });
+    document.getElementById("tallyCap").textContent="On-call weeks in "+viewYear+" by technician.";
+    var body=document.getElementById("tallyRows"); body.innerHTML="";
+    var totals=[];
+    state.roster.forEach(function(t){
+      var tot=first[t]+second[t]; totals.push(tot);
+      var tr=document.createElement("tr");
+      tr.innerHTML='<td class="name">'+escapeHtml(t)+'</td><td>'+first[t]+'</td><td>'+second[t]+'</td><td><strong>'+tot+'</strong></td>';
+      body.appendChild(tr);
+    });
+    var note=document.getElementById("balNote");
+    if(totals.length){
+      var mn=Math.min.apply(null,totals), mx=Math.max.apply(null,totals);
+      if(mx-mn<=1){ note.textContent="Balanced — within one week across the roster."; note.style.color="#2e6b3b"; }
+      else{ note.textContent="Uneven — spread is "+(mx-mn)+" weeks."; note.style.color="#a5121a"; }
+    } else { note.textContent=""; }
+  }
+
+  document.addEventListener("change",function(ev){
+    var el=ev.target;
+    if(el.matches("select[data-i]")){
+      state.assign[+el.dataset.i][el.dataset.role]=el.value; save(); render();
+    }
+  });
+  document.addEventListener("input",function(ev){
+    var el=ev.target;
+    if(el.matches("input.note[data-i]")){
+      state.assign[+el.dataset.i].note=el.value; save();
+    }
+  });
+
+  document.querySelectorAll(".yearbtn").forEach(function(b){
+    b.addEventListener("click",function(){ viewYear=+b.dataset.year; render(); });
+  });
+
+  document.getElementById("jumpNow").addEventListener("click",function(){
+    if(NOW_I<0){ alert("Today is outside the rotation range (Sep 2026 – Dec 2027)."); return; }
+    viewYear=WEEKS[NOW_I].start.getFullYear();
+    render();
+    var r=document.getElementById("nowrow");
+    if(r) r.scrollIntoView({behavior:"smooth",block:"center"});
+  });
+
+  document.getElementById("printBtn").addEventListener("click",function(){ window.print(); });
+
+  document.getElementById("resetBtn").addEventListener("click",function(){
+    if(confirm("Reset the roster and regenerate the default fair rotation? This clears all edits and notes.")){
+      state=freshState(); save();
+      viewYear=(new Date().getFullYear()===2027)?2027:2026;
+      render();
+    }
+  });
+
+  document.getElementById("addTech").addEventListener("click",addTech);
+  document.getElementById("newTech").addEventListener("keydown",function(e){ if(e.key==="Enter") addTech(); });
+  function addTech(){
+    var inp=document.getElementById("newTech");
+    var name=inp.value.trim();
+    if(!name) return;
+    if(state.roster.indexOf(name)!==-1){ alert(name+" is already on the roster."); return; }
+    state.roster.push(name);
+    regenerateForward();
+    inp.value=""; save(); render();
+  }
+
+  document.getElementById("rosterList").addEventListener("click",function(ev){
+    var b=ev.target.closest("button.rm"); if(!b) return;
+    var name=b.dataset.name;
+    if(state.roster.length<=2){ alert("Keep at least two technicians so each week has a First Up and Second Up."); return; }
+    if(!confirm("Remove "+name+" from the roster? Upcoming weeks will be reassigned; past and current weeks keep their assignments.")) return;
+    state.roster=state.roster.filter(function(t){return t!==name;});
+    regenerateForward();
+    save(); render();
+  });
+
+  // Regenerate assignments for weeks AFTER the current week only.
+  // Past and current weeks keep their assignments (historical record).
+  function regenerateForward(){
+    var n=state.roster.length;
+    if(n<1) return;
+    var startIdx = (NOW_I>=0)? NOW_I+1 : 0;
+    for(var i=startIdx;i<WEEKS.length;i++){
+      state.assign[i].first  = state.roster[i % n];
+      state.assign[i].second = state.roster[(i+1) % n];
+    }
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
