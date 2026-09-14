@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#14171A">
 <title>Time Off — Fire Defense Equipment Company</title>
+<link rel="icon" href="no-fire-favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
@@ -57,6 +59,13 @@ header.bar{
 }
 .mark .sub{font-size:12.5px;color:#9AA5AF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bar-right{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13.5px;color:#B7C0C8}
+.bar-right .navlink{
+  font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:16px;
+  color:#fff;text-decoration:none;border:1px solid #4A545E;border-radius:var(--radius);
+  padding:5px 11px;white-space:nowrap;
+}
+.bar-right .navlink:hover{background:#242A31;border-color:#6C7783}
+@media(max-width:520px){.bar-right .who{display:none}}
 .bar-right .who{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 nav.tabs{display:flex;gap:0;border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:20;overflow-x:auto}
@@ -219,6 +228,7 @@ pre{background:#F1F3F5;border:1px solid var(--line);border-radius:var(--radius);
       <span class="sub">Sprinkler Department — Time Off</span>
     </div>
     <div class="bar-right">
+      <a class="navlink" href="index.html" title="Back to the on-call rotation">On-call rotation</a>
       <span class="who" id="whoami"></span>
       <button class="btn ghost small hide" id="signOutBtn" style="background:transparent;color:#fff;border-color:#4A545E">Sign out</button>
     </div>
@@ -249,10 +259,17 @@ pre{background:#F1F3F5;border:1px solid var(--line);border-radius:var(--radius);
       <label for="pw">Password</label>
       <input id="pw" type="password" autocomplete="current-password">
     </div>
+    <div class="field hide" id="nameField">
+      <label for="fullName">Full name</label>
+      <input id="fullName" type="text" autocomplete="name" placeholder="First and last">
+    </div>
     <div class="actions">
       <button class="btn primary" id="signInBtn">Sign in</button>
       <button class="btn ghost small" id="resetBtn">Email me a reset link</button>
     </div>
+    <p class="hint" style="margin-top:14px">
+      First time here? <a href="#" id="toRegister">Create your account</a>
+    </p>
   </section>
 </div>
 
@@ -299,6 +316,10 @@ const TYPES = [
   { id:"sick",     label:"Sick",     tracked:true  },
   { id:"unpaid",   label:"Unpaid",   tracked:false }
 ];
+// >>> CHANGE THIS to your real work email domain before you share the link. <<<
+// Only addresses on these domains can create an account.
+const ALLOWED_EMAIL_DOMAINS = ["firedefense.com"];
+
 const COVERAGE_WARN_AT = 2; // warn the manager when this many techs are off the same day
 
 /* ========================================================================= */
@@ -306,7 +327,7 @@ const COVERAGE_WARN_AT = 2; // warn the manager when this many techs are off the
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged,
-  sendPasswordResetEmail
+  sendPasswordResetEmail, createUserWithEmailAndPassword, updateProfile
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc,
@@ -385,9 +406,43 @@ $("#resetBtn")?.addEventListener("click", doReset);
 $("#signOutBtn")?.addEventListener("click", () => signOut(auth));
 $("#reloadBtn")?.addEventListener("click", () => location.reload());
 
+let gateMode = "signin", pendingName = "";
+
+$("#toRegister")?.addEventListener("click", e => {
+  e.preventDefault();
+  setGateMode(gateMode === "signin" ? "register" : "signin");
+});
+function setGateMode(m){
+  gateMode = m;
+  $("#nameField").classList.toggle("hide", m !== "register");
+  $("#resetBtn").classList.toggle("hide", m === "register");
+  $("#signInBtn").textContent = m === "register" ? "Create account" : "Sign in";
+  $("#toRegister").textContent = m === "register" ? "Back to sign in" : "Create your account";
+  $("#pw").setAttribute("autocomplete", m === "register" ? "new-password" : "current-password");
+  $("#gateMsg").innerHTML = m === "register"
+    ? `<div class="msg warn">Register with your work email. Your manager sets your hours after you sign up.</div>`
+    : "";
+}
+
+async function doRegister(email, pw){
+  const name = $("#fullName").value.trim();
+  const domain = (email.split("@")[1] || "").toLowerCase();
+  if (!ALLOWED_EMAIL_DOMAINS.includes(domain))
+    return gateMsg(`Use your work email. Only ${ALLOWED_EMAIL_DOMAINS.join(" or ")} addresses can register.`, "err");
+  if (name.split(" ").filter(Boolean).length < 2) return gateMsg("Enter your first and last name.", "err");
+  if (pw.length < 8) return gateMsg("Pick a password of at least eight (8) characters.", "err");
+  gateMsg('Creating your account <span class="spin"></span>', "warn");
+  pendingName = name;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pw);
+    await updateProfile(cred.user, { displayName: name });
+  } catch(e){ pendingName = ""; gateMsg(authError(e), "err"); }
+}
+
 async function doSignIn(){
   const email = $("#email").value.trim(), pw = $("#pw").value;
   if (!email || !pw) return gateMsg("Enter your email and password.", "err");
+  if (gateMode === "register") return doRegister(email, pw);
   gateMsg('Signing in <span class="spin"></span>', "warn");
   try { await signInWithEmailAndPassword(auth, email, pw); }
   catch(e){ gateMsg(authError(e), "err"); }
@@ -403,6 +458,8 @@ function authError(e){
   const c = e?.code || "";
   if (c.includes("invalid-credential") || c.includes("wrong-password") || c.includes("user-not-found"))
     return "That email and password did not match. Try again or request a reset link.";
+  if (c.includes("email-already-in-use")) return "That email already has an account. Switch to sign in, or request a reset link.";
+  if (c.includes("weak-password")) return "Password is too short. Use at least eight (8) characters.";
   if (c.includes("too-many-requests")) return "Too many tries. Wait a few minutes, then try again.";
   if (c.includes("network")) return "No connection to Firebase. Check your signal and try again.";
   if (c.includes("operation-not-allowed")) return "Email sign-in is turned off in Firebase. Turn it on under Authentication.";
@@ -424,7 +481,7 @@ async function onAuth(user){
     // First sign-in: create a tech profile with zero balances for the manager to fill in.
     try {
       await setDoc(ref, {
-        name: user.displayName || user.email.split("@")[0],
+        name: pendingName || user.displayName || user.email.split("@")[0],
         email: user.email,
         role: "tech",
         active: true,
@@ -608,7 +665,6 @@ function reqRow(r, mgrView){
       <div class="ttl">${mgrView ? esc(r.name) + " — " : ""}${esc(t.label)} · ${fmtHours(r.hours)} hrs (${fmtHours(days)} d)</div>
       <div class="meta">${span}</div>
       ${r.note ? `<div class="said">${esc(r.note)}</div>` : ""}
-      ${r.coverage ? `<div class="said">Coverage: ${esc(r.coverage)}</div>` : ""}
       ${r.managerNote ? `<div class="said">Manager: ${esc(r.managerNote)}</div>` : ""}
     </div>
     <div class="side">
@@ -680,10 +736,6 @@ function viewRequest(){
       <p class="hint">Set a day to four (4) hours for a half day, or zero (0) to skip it. Weekends default to zero (0).</p>
     </div>
 
-    <div class="field">
-      <label for="fCoverage">Coverage plan</label>
-      <input id="fCoverage" type="text" placeholder="Who picks up your inspections, or which accounts move">
-    </div>
     <div class="field">
       <label for="fNote">Note to the manager</label>
       <textarea id="fNote" placeholder="Optional"></textarea>
@@ -765,39 +817,10 @@ async function submitRequest(){
       days,
       hours: total,
       note: $("#fNote").value.trim(),
-      coverage: $("#fCoverage").value.trim(),
       status: "pending",
       submittedAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
-
-    // Notify the scheduler by email (opens the tech's mail app to send).
-    try {
-      var MANAGER_EMAIL = "mp1@firedefense.com";
-      var dayLines = days.map(function(d){ return "  " + d.date + " — " + fmtHours(d.hours); }).join("\n");
-      var subject = "Time Off Request — " + profile.name + " (" + formType + ")";
-      var bodyLines = [
-        "Time Off Request",
-        "----------------",
-        "Technician: " + profile.name,
-        "Type: " + formType,
-        "Dates: " + days[0].date + " to " + days[days.length-1].date,
-        "Total hours: " + fmtHours(total),
-        "",
-        "Days:",
-        dayLines,
-        "",
-        "Coverage plan: " + ($("#fCoverage").value.trim() || "(none provided)"),
-        "Note: " + ($("#fNote").value.trim() || "(none)"),
-        "",
-        "Submitted through the Time Off app."
-      ];
-      var mailto = "mailto:" + encodeURIComponent(MANAGER_EMAIL) +
-        "?subject=" + encodeURIComponent(subject) +
-        "&body=" + encodeURIComponent(bodyLines.join("\n"));
-      window.location.href = mailto;
-    } catch(_e){ /* email is a courtesy notice; ignore failures */ }
-
     formDays = {};
     toast("Request submitted. Your manager sees it now.");
     activeTab = "balances";
@@ -848,10 +871,10 @@ function coverageConflicts(list){
 }
 function wireApprovals(){
   $("#exportBtn")?.addEventListener("click", () => {
-    const rows = [["Name","Type","Start","End","Hours","Days","Status","Decided by","Note","Coverage"]];
+    const rows = [["Name","Type","Start","End","Hours","Days","Status","Decided by","Note"]];
     myRequests.filter(r => r.status === "approved").forEach(r => rows.push([
       r.name, typeOf(r.type).label, r.startDate, r.endDate, r.hours,
-      (r.hours/HOURS_PER_DAY).toFixed(2), r.status, r.decidedBy || "", r.note || "", r.coverage || ""
+      (r.hours/HOURS_PER_DAY).toFixed(2), r.status, r.decidedBy || "", r.note || ""
     ]));
     const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
