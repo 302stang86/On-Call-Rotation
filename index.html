@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1B2A4A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>FDEC Sprinkler Department — On-Call Rotation</title>
 <link rel="icon" href="no-fire-favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -38,6 +41,7 @@
   #adminBtn.unlocked:hover{background:#256f31;}
   body.locked td.assign select,body.locked input.note{pointer-events:none;background:#f4f6f9;color:#3a4152;border-color:#e2e6ee;-webkit-appearance:none;appearance:none;}
   body.locked #resetBtn{display:none;}
+  body.locked #balBtn{display:none;}
   body.locked #rosterPanel{display:none;}
   .hint{font-size:12.5px;color:var(--muted);}
 
@@ -124,7 +128,7 @@
   .reqpanel .body{border:1px solid var(--line);border-top:none;border-radius:0 0 5px 5px;padding:16px 18px;background:#fff;}
   .reqintro{font-size:13px;color:var(--muted);margin:0 0 14px;}
   .reqgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;}
-  @media (max-width:680px){.reqgrid{grid-template-columns:1fr;}}
+  @media (max-width:760px){.reqgrid{grid-template-columns:1fr;}}
   .reqpanel label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;font-weight:700;color:var(--navy);}
   .reqpanel .reqfull{margin-top:12px;}
   .reqpanel select,.reqpanel input,.reqpanel textarea{font-family:inherit;font-size:13.5px;font-weight:400;color:#222;padding:8px 9px;border:1px solid var(--line);border-radius:4px;background:#fff;width:100%;}
@@ -145,6 +149,7 @@
   ul.roster li{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);}
   ul.roster li:last-child{border-bottom:none;}
   ul.roster .rname{flex:1;font-weight:700;color:var(--navy);font-size:13.5px;}
+  .mgrbadge{display:inline-block;background:var(--navy);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px;vertical-align:middle;letter-spacing:.3px;}
   .leadbadge{display:inline-block;background:#2e8b3d;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px;vertical-align:middle;letter-spacing:.3px;}
   ul.roster button.rm{border-color:var(--red);color:var(--red);padding:4px 10px;font-size:12px;}
   ul.roster button.rm:hover{background:var(--red);color:#fff;}
@@ -162,6 +167,66 @@
   .tallycap{font-size:11.5px;color:var(--muted);margin:0 0 8px;}
 
   footer{padding:18px 32px 30px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:14px;}
+  /* ================= phones and small tablets ================= */
+  @media (max-width:760px){
+    html{-webkit-text-size-adjust:100%;}
+    body{-webkit-tap-highlight-color:rgba(27,42,74,.12);}
+    .sheet{box-shadow:none;}
+
+    header.mast{padding:16px 15px 14px;}
+    .company{font-size:19px;line-height:1.18;letter-spacing:0;}
+    .dept{font-size:13px;}
+    .period{font-size:12px;margin-top:9px;}
+
+    .toolbar{padding:10px 12px;gap:8px;}
+    .toolbar .spacer{display:none;}
+    .toolbar button,.toolbar .btnlink{flex:1 1 calc(50% - 8px);min-height:44px;
+      display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;}
+    .toolbar .hint{flex:1 1 100%;font-size:12px;text-align:center;}
+
+    .wrap{padding:10px 12px 4px;overflow-x:visible;}
+
+    /* the six-column grid becomes one card per week */
+    #rotation thead{display:none;}
+    #rotation,#rotation tbody,#rotation tr,#rotation td{display:block;width:auto;}
+    #rotation caption{font-size:13px;padding:0 0 10px;}
+    #rotation tr{border:1px solid var(--line);border-radius:9px;background:#fff;
+      margin:0 0 12px;padding:11px 13px 13px;}
+    #rotation tr:nth-child(odd) td{background:transparent;}
+    #rotation tr.now{border:2px solid var(--now-bar);background:var(--now);}
+    #rotation tr.now td{background:transparent!important;}
+    #rotation td{border:none!important;padding:7px 0 0;width:auto!important;}
+    #rotation td.wk{padding:0;text-align:left;width:auto;}
+    #rotation tr.now td.wk::before{display:none;}
+    #rotation td.date{display:inline;padding:0;font-size:16px;font-weight:800;color:var(--navy);white-space:nowrap;}
+    #rotation td.date + td.date::before{content:" \2013 ";font-weight:600;color:var(--muted);}
+    #rotation td[data-label]::before{content:attr(data-label);display:block;
+      font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
+      color:var(--muted);margin:0 0 4px;}
+    #rotation .nowtag{display:inline-block;margin:0 0 6px;}
+    #rotation .holdot{margin-left:6px;}
+
+    /* 16px keeps iOS from zooming the page when a field takes focus */
+    select,input.note,.reqpanel select,.reqpanel input,.reqpanel textarea{
+      font-size:16px;min-height:44px;padding:9px 10px;}
+    .reqpanel textarea{min-height:88px;}
+
+    .lower{padding-left:12px;padding-right:12px;}
+    .panel .body{padding:12px 13px;}
+    ul.roster button.rm{min-height:38px;padding:6px 12px;}
+    .addrow input{font-size:16px;min-height:44px;}
+    .addrow button{min-height:44px;}
+    table.tally{font-size:12.5px;}
+    table.tally th,table.tally td{padding:6px 5px;}
+    .calpop{width:min(340px,94vw);}
+    .cal-cell{font-size:15px;}
+  }
+
+  @media (max-width:400px){
+    .company{font-size:17px;}
+    .toolbar button,.toolbar .btnlink{flex:1 1 100%;}
+  }
+
   @media print{
     body{background:#fff;}
     .toolbar,#rosterPanel,.calbtn,.calpop,.calpop-backdrop{display:none;}
@@ -184,6 +249,7 @@
     <button id="jumpNow" type="button">Jump to current week</button>
     <a class="btnlink" href="timeoff.html">🗓️ Time Off Requests</a>
     <button id="printBtn" type="button">Print / Save PDF</button>
+    <button id="balBtn" type="button">Rebalance holidays</button>
     <button id="resetBtn" class="danger" type="button">Reset everything</button>
     <span class="spacer"></span>
     <span class="hint" id="modeHint">View-only. Click “Admin” to unlock editing.</span>
@@ -287,6 +353,7 @@
           <li>The current week is highlighted in green. Pick a date from the calendar to outline that week in dark red.</li>
           <li>Weeks containing a U.S. federal holiday are marked with a ★ and the holiday name so techs can plan ahead.</li>
           <li>The rotation runs continuously from 2026 into 2027, advancing one technician each week.</li>
+          <li>Refer to Fire Defense Equipment Co. policies regarding holiday pay, holiday paid days off, and which holidays are included.</li>
         </ul>
       </div>
     </section>
@@ -299,7 +366,7 @@
           <input id="newTech" type="text" placeholder="Add technician name…" aria-label="New technician name">
           <button id="addTech" type="button">Add</button>
         </div>
-        <p class="rosterhint">Roster changes apply to upcoming weeks only. Past and current weeks keep their assignments. Lead techs (Tim H., Owen H.) are never scheduled together in the same week.</p>
+        <p class="rosterhint">Roster changes apply to upcoming weeks only. Past and current weeks keep their assignments. Lead techs (Tim H., Owen H.) are never scheduled together in the same week. Managers are listed for reference only and are never placed in the rotation.</p>
       </div>
     </section>
 
@@ -325,13 +392,17 @@
 (function(){
   "use strict";
 
-  var DEFAULT_ROSTER = ["Tim H.","Owen H.","Eric O.","Jacob K.","Corey W."];
+  var DEFAULT_ROSTER = ["Tim H.","Owen H.","Eric O.","Jacob K.","Corey W.","Wade H.","Mitch P."];
   var LEADS = ["Tim H.","Owen H."]; // lead techs — never paired together in the same week
+  var MANAGERS = ["Wade H.","Mitch P."]; // managers — listed on the roster, never placed in the rotation
   var START = new Date(2026,8,13); // Sep 13 2026 (month 0-based)
   var END = new Date(2027,11,31);
   var KEY = "fdec_oncall_v3";
 
   function isLead(name){ return LEADS.indexOf(name)!==-1; }
+  function isMgr(name){ return MANAGERS.indexOf(name)!==-1; }
+  // Everyone eligible for First Up / Second Up. Managers are excluded.
+  function techsOnly(list){ return list.filter(function(t){ return !isMgr(t); }); }
 
   var selectedWeek = -1; // week highlighted after picking a date in the calendar
 
@@ -371,6 +442,59 @@
     return map;
   })();
   // Return list of {name,date} holidays that fall within a given week
+  // ---- Holiday fairness ----------------------------------------------------
+  // A straight round robin repeats on a fixed cycle while holidays fall on a
+  // near-fixed yearly pattern, so the same techs keep catching them. This pass
+  // swaps whole weeks between techs: every tech keeps the same total number of
+  // on-call weeks, and only the holiday load moves.
+  function holidayCounts(assign, roster){
+    var c={};
+    techsOnly(roster).forEach(function(t){ c[t]=0; });
+    for(var i=0;i<assign.length;i++){
+      if(!HOLIDAY_WEEK[i]) continue;
+      if(assign[i].first in c) c[assign[i].first]++;
+    }
+    return c;
+  }
+  function weekOk(assign,i){
+    var a=assign[i];
+    if(a.first===a.second) return false;            // no duplicate in a week
+    if(isLead(a.first) && isLead(a.second)) return false; // leads never paired
+    return true;
+  }
+  function balanceHolidays(assign, roster, startIdx){
+    var techs = techsOnly(roster);
+    if(techs.length<3) return 0;
+    var moves=0, guard=0;
+    while(guard++ < 500){
+      var c = holidayCounts(assign, roster);
+      var vals = techs.map(function(t){ return c[t]||0; });
+      var hi = Math.max.apply(null, vals), lo = Math.min.apply(null, vals);
+      if(hi - lo <= 1) break;                        // as even as it can get
+      var heavy = techs.filter(function(t){ return (c[t]||0)===hi; });
+      var light = techs.filter(function(t){ return (c[t]||0)===lo; });
+      var swapped = false;
+      for(var i=startIdx;i<assign.length && !swapped;i++){
+        if(!HOLIDAY_WEEK[i]) continue;
+        if(heavy.indexOf(assign[i].first)===-1) continue;
+        for(var j=startIdx;j<assign.length;j++){
+          if(HOLIDAY_WEEK[j]) continue;
+          if(light.indexOf(assign[j].first)===-1) continue;
+          // Trade the whole week, First Up and Second Up together. Both weeks
+          // were already valid, so the pairing rules survive the swap and each
+          // tech keeps the same number of first and second turns.
+          var a=assign[i], b=assign[j];
+          assign[i]={first:b.first, second:b.second, note:a.note};
+          assign[j]={first:a.first, second:a.second, note:b.note};
+          if(weekOk(assign,i) && weekOk(assign,j)){ swapped=true; moves++; break; }
+          assign[i]=a; assign[j]=b;                  // revert, keep looking
+        }
+      }
+      if(!swapped) break;                            // nothing legal left to trade
+    }
+    return moves;
+  }
+
   function holidaysInWeek(w){
     var out=[]; var d=new Date(w.start);
     for(var k=0;k<7;k++){
@@ -384,7 +508,8 @@
   // Arrange roster so no two lead techs are adjacent (circularly), keeping the
   // rotation fair. first[i]=order[i%n], second[i]=order[(i+1)%n], so adjacency
   // in this order determines who shares a week — leads must never be adjacent.
-  function arrangeOrder(roster){
+  function arrangeOrder(rosterIn){
+    var roster = techsOnly(rosterIn);
     var leads = roster.filter(isLead);
     var others = roster.filter(function(t){return !isLead(t);});
     if(leads.length===0) return roster.slice();
@@ -414,6 +539,8 @@
     return String(dt.getMonth()+1).padStart(2,"0")+"/"+String(dt.getDate()).padStart(2,"0")+"/"+dt.getFullYear();
   }
 
+  var HOLIDAY_WEEK = WEEKS.map(function(w){ return holidaysInWeek(w).length>0; });
+
   function genAssignments(roster){
     var order = arrangeOrder(roster);
     var n = order.length;
@@ -423,7 +550,9 @@
   }
   function freshState(){
     var roster = DEFAULT_ROSTER.slice();
-    return { roster:roster, assign:genAssignments(roster) };
+    var assign = genAssignments(roster);
+    balanceHolidays(assign, roster, 0);
+    return { roster:roster, assign:assign, holBal:1 };
   }
   function load(){
     try{
@@ -449,6 +578,24 @@
     return -1;
   }
   var NOW_I = currentWeekIndex();
+  // Bring older saved data up to date: make sure both managers are on the
+  // roster and that neither one is holding an upcoming on-call week.
+  (function migrateManagers(){
+    var touched=false;
+    MANAGERS.forEach(function(m){
+      if(state.roster.indexOf(m)===-1){ state.roster.push(m); touched=true; }
+    });
+    var startIdx = (NOW_I>=0) ? NOW_I+1 : 0;
+    for(var i=startIdx;i<state.assign.length;i++){
+      if(isMgr(state.assign[i].first) || isMgr(state.assign[i].second)){ touched=true; break; }
+    }
+    if(touched){ regenerateForward(); save(); }
+    else if(state.holBal!==1){
+      balanceHolidays(state.assign, state.roster, (NOW_I>=0)? NOW_I+1 : 0);
+      state.holBal=1; save();
+    }
+  })();
+
 
   var viewYear = (function(){
     var y=new Date().getFullYear();
@@ -461,7 +608,7 @@
   // Build options; always include the currently-assigned value even if it's no longer on the roster
   // (so historical/edited weeks referencing a removed tech still display correctly).
   function options(sel){
-    var list = state.roster.slice();
+    var list = techsOnly(state.roster);
     if(sel && list.indexOf(sel)===-1) list.push(sel+" (removed)");
     return list.map(function(t){
       var val = t.replace(/ \(removed\)$/,"");
@@ -504,10 +651,10 @@
         '<td class="wk">'+(isNow?'<span class="nowtag">CURRENT WEEK PERIOD</span>':'')+(hols.length?'<span class="holdot" title="Holiday week">★</span>':'')+'</td>'+
         '<td class="date">'+fmt(w.start)+'</td>'+
         '<td class="date">'+fmt(w.end)+'</td>'+
-        '<td class="assign role1"><select data-i="'+i+'" data-role="first" aria-label="First up week starting '+fmt(w.start)+'">'+options(a.first)+'</select>'+
+        '<td class="assign role1" data-label="First Up"><select data-i="'+i+'" data-role="first" aria-label="First up week starting '+fmt(w.start)+'">'+options(a.first)+'</select>'+
           (flagMsg?'<span class="flag">'+flagMsg+'</span>':'')+'</td>'+
-        '<td class="assign role2"><select data-i="'+i+'" data-role="second" aria-label="Second up week starting '+fmt(w.start)+'">'+options(a.second)+'</select></td>'+
-        '<td><input class="note" type="text" data-i="'+i+'" data-role="note" value="'+escapeHtml(a.note)+'" placeholder="Vacation, personal time, swap…" aria-label="Notes week starting '+fmt(w.start)+'">'+holHtml+'</td>';
+        '<td class="assign role2" data-label="Second Up"><select data-i="'+i+'" data-role="second" aria-label="Second up week starting '+fmt(w.start)+'">'+options(a.second)+'</select></td>'+
+        '<td data-label="Notes / Vacation / Swaps"><input class="note" type="text" data-i="'+i+'" data-role="note" value="'+escapeHtml(a.note)+'" placeholder="Vacation, personal time, swap…" aria-label="Notes week starting '+fmt(w.start)+'">'+holHtml+'</td>';
       rows.appendChild(tr);
     });
 
@@ -519,7 +666,8 @@
     var ul=document.getElementById("rosterList"); ul.innerHTML="";
     state.roster.forEach(function(t){
       var li=document.createElement("li");
-      var badge = isLead(t) ? ' <span class="leadbadge">LEAD</span>' : '';
+      var badge = isMgr(t) ? ' <span class="mgrbadge">MANAGER</span>'
+                : isLead(t) ? ' <span class="leadbadge">LEAD</span>' : '';
       li.innerHTML='<span class="rname">'+escapeHtml(t)+badge+'</span>'+
         '<button class="rm" type="button" data-name="'+escapeHtml(t)+'" aria-label="Remove '+escapeHtml(t)+'">Remove</button>';
       ul.appendChild(li);
@@ -726,6 +874,18 @@
     }
   });
 
+  document.getElementById("balBtn").addEventListener("click",function(){
+    if(!unlocked) return;
+    var startIdx=(NOW_I>=0)? NOW_I+1 : 0;
+    var before=holidayCounts(state.assign,state.roster);
+    var moves=balanceHolidays(state.assign,state.roster,startIdx);
+    save(); render();
+    var after=holidayCounts(state.assign,state.roster);
+    var line=Object.keys(after).map(function(t){return t+": "+after[t];}).join("\n");
+    alert(moves? ("Swapped "+moves+" week"+(moves===1?"":"s")+" from next week forward.\n\nHoliday weeks as First Up:\n"+line)
+               : ("Already as even as the roster allows.\n\nHoliday weeks as First Up:\n"+line));
+  });
+
   document.getElementById("addTech").addEventListener("click",addTech);
   document.getElementById("newTech").addEventListener("keydown",function(e){ if(e.key==="Enter") addTech(); });
   function addTech(){
@@ -743,7 +903,7 @@
     if(!unlocked) return;
     var b=ev.target.closest("button.rm"); if(!b) return;
     var name=b.dataset.name;
-    if(state.roster.length<=2){ alert("Keep at least two technicians so each week has a First Up and Second Up."); return; }
+    if(!isMgr(name) && techsOnly(state.roster).length<=2){ alert("Keep at least two technicians so each week has a First Up and Second Up."); return; }
     if(!confirm("Remove "+name+" from the roster? Upcoming weeks will be reassigned; past and current weeks keep their assignments.")) return;
     state.roster=state.roster.filter(function(t){return t!==name;});
     regenerateForward();
@@ -761,6 +921,7 @@
       state.assign[i].first  = order[i % n];
       state.assign[i].second = order[(i+1) % n];
     }
+    balanceHolidays(state.assign, state.roster, startIdx);
   }
 
   // ---- Rotation change request form ----
@@ -771,13 +932,14 @@
     var withSel=document.getElementById("reqWith");
     if(!nameSel||!withSel) return;
     var curName=nameSel.value, curWith=withSel.value;
+    var techs = techsOnly(state.roster);
     nameSel.innerHTML='<option value="">Select…</option>'+
-      state.roster.map(function(t){return '<option value="'+escapeHtml(t)+'">'+escapeHtml(t)+'</option>';}).join("");
+      techs.map(function(t){return '<option value="'+escapeHtml(t)+'">'+escapeHtml(t)+'</option>';}).join("");
     withSel.innerHTML='<option value="">— n/a —</option>'+
-      state.roster.map(function(t){return '<option value="'+escapeHtml(t)+'">'+escapeHtml(t)+'</option>';}).join("");
+      techs.map(function(t){return '<option value="'+escapeHtml(t)+'">'+escapeHtml(t)+'</option>';}).join("");
     // restore prior selections if still valid
-    if(state.roster.indexOf(curName)!==-1) nameSel.value=curName;
-    if(state.roster.indexOf(curWith)!==-1) withSel.value=curWith;
+    if(techs.indexOf(curName)!==-1) nameSel.value=curName;
+    if(techs.indexOf(curWith)!==-1) withSel.value=curWith;
   }
 
   var reqBtn=document.getElementById("reqSubmit");
