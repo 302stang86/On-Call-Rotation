@@ -460,8 +460,31 @@
   }
   function weekOk(assign,i){
     var a=assign[i];
+    if(!a) return true;
     if(a.first===a.second) return false;            // one tech cannot hold both roles
+    var p=assign[i-1], nx=assign[i+1];
+    // nobody repeats the same role on back-to-back weeks
+    if(p  && (p.first===a.first  || p.second===a.second))  return false;
+    if(nx && (nx.first===a.first || nx.second===a.second)) return false;
     return true;
+  }
+
+  // Safety net. Any back-to-back repeat left over after a swap gets traded with
+  // the nearest clean week that will take it.
+  function repairAdjacency(assign, startIdx){
+    var fixed=0;
+    for(var i=Math.max(startIdx,1);i<assign.length;i++){
+      if(assign[i].first!==assign[i-1].first && assign[i].second!==assign[i-1].second) continue;
+      for(var j=startIdx;j<assign.length;j++){
+        if(j===i || j===i-1 || j===i+1) continue;
+        var a=assign[i], b=assign[j];
+        assign[i]={first:b.first, second:b.second, note:a.note};
+        assign[j]={first:a.first, second:a.second, note:b.note};
+        if(weekOk(assign,i) && weekOk(assign,j)){ fixed++; break; }
+        assign[i]=a; assign[j]=b;
+      }
+    }
+    return fixed;
   }
   function balanceHolidays(assign, roster, startIdx){
     var techs = techsOnly(roster);
@@ -556,6 +579,7 @@
     var roster = techs.concat(DEFAULT_ROSTER.filter(isMgr));
     var assign = genAssignments(roster);
     balanceHolidays(assign, roster, 0);
+    repairAdjacency(assign, 0);
     return { roster:roster, assign:assign, holBal:1 };
   }
   function load(){
@@ -637,14 +661,17 @@
       if(w.start.getFullYear()!==viewYear) return;
       var a=state.assign[i];
       var conflict=(a.first===a.second);
+      var prev=(i>0)? state.assign[i-1] : null;
+      var repeat=!!(prev && (prev.first===a.first || prev.second===a.second));
       var isNow=(i===NOW_I);
       var isSel=(i===selectedWeek);
       var hols=holidaysInWeek(w);
       var tr=document.createElement("tr");
-      tr.className=(conflict?"conflict ":"")+(isNow?"now ":"")+(isSel?"selweek ":"")+(hols.length?"holidayweek":"");
+      tr.className=((conflict||repeat)?"conflict ":"")+(isNow?"now ":"")+(isSel?"selweek ":"")+(hols.length?"holidayweek":"");
       tr.id="wk-"+i;
       if(isNow) tr.setAttribute("data-now","1");
-      var flagMsg = conflict ? "Same tech in both roles" : "";
+      var flagMsg = conflict ? "Same tech in both roles"
+                  : (repeat ? "Same tech two weeks running" : "");
       var holHtml = hols.length
         ? '<div class="holrow">'+hols.map(function(h){
             return '<span class="holtag">★ '+escapeHtml(h.name)+' — '+(h.date.getMonth()+1)+'/'+h.date.getDate()+'</span>';
@@ -883,6 +910,7 @@
     var startIdx=(NOW_I>=0)? NOW_I+1 : 0;
     var before=holidayCounts(state.assign,state.roster);
     var moves=balanceHolidays(state.assign,state.roster,startIdx);
+    repairAdjacency(state.assign,startIdx);
     save(); render();
     var after=holidayCounts(state.assign,state.roster);
     var line=Object.keys(after).map(function(t){return t+": "+after[t];}).join("\n");
@@ -921,11 +949,21 @@
     var n = order.length;
     if(n<1) return;
     var startIdx = (NOW_I>=0)? NOW_I+1 : 0;
+    // Pick up the cycle where the last untouched week left off, so the tech who
+    // just finished a week does not get handed the next one as well.
+    var off = 0;
+    if(startIdx > 0){
+      var prevFirst = state.assign[startIdx-1].first;
+      var pi = order.indexOf(prevFirst);
+      if(pi !== -1) off = (pi + 1) - startIdx;
+    }
+    var at = function(i){ return order[(((i + off) % n) + n) % n]; };
     for(var i=startIdx;i<WEEKS.length;i++){
-      state.assign[i].first  = order[i % n];
-      state.assign[i].second = order[(i+1) % n];
+      state.assign[i].first  = at(i);
+      state.assign[i].second = at(i+1);
     }
     balanceHolidays(state.assign, state.roster, startIdx);
+    repairAdjacency(state.assign, startIdx);
   }
 
   // ---- Rotation change request form ----
