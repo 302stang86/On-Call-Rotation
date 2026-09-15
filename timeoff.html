@@ -215,6 +215,42 @@ table.grid select{padding:5px 7px;font-size:14.5px;max-width:130px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+
+/* ---------- phones ---------- */
+@media(max-width:760px){
+  html{-webkit-text-size-adjust:100%}
+  body{-webkit-tap-highlight-color:rgba(179,33,39,.12)}
+  :root{--gut:12px}
+  .bar-in{padding:10px var(--gut)}
+  .mark .fd{font-size:22px}
+  .mark .sub{font-size:11.5px}
+  section.panel{padding:14px 13px}
+  nav.tabs .tab{font-size:16px;padding:11px 12px}
+  input,select,textarea{font-size:16px;min-height:44px}
+  textarea{min-height:88px}
+  button.btn{min-height:44px}
+  button.btn.small{min-height:38px}
+
+  /* coverage calendar: initials only, taller rows for thumbs */
+  .cal td{height:64px;padding:2px}
+  .cal th{font-size:12px}
+  .cal .dn{font-size:11px}
+  .cal .who{font-size:10px;padding:0 2px}
+
+  /* roster: let it scroll sideways instead of squeezing */
+  table.grid{min-width:560px;font-size:14px}
+  table.grid input,table.grid select{min-height:38px}
+  .tblwrap{-webkit-overflow-scrolling:touch}
+
+  .daylist .d{padding:9px 10px}
+  .daylist .d select{min-height:40px}
+  .gauge .big{font-size:34px}
+  .req .side{width:100%}
+}
+@media(max-width:400px){
+  .mark .sub{display:none}
+  .bar-right .navlink{font-size:14px;padding:5px 8px}
+}
 code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;background:#F1F3F5;padding:1px 4px;border-radius:2px}
 pre{background:#F1F3F5;border:1px solid var(--line);border-radius:var(--radius);padding:12px;overflow:auto;font-size:12.5px}
 </style>
@@ -347,6 +383,7 @@ const isWeekend = s => { const w = s2d(s).getDay(); return w === 0 || w === 6; }
 const fmtShort = s => s2d(s).toLocaleDateString(undefined,{month:"short",day:"numeric"});
 const fmtLong  = s => s2d(s).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"});
 const fmtDay   = s => s2d(s).toLocaleDateString(undefined,{weekday:"short",month:"numeric",day:"numeric"});
+const yearOf   = s => Number(String(s || "").slice(0,4));
 function rangeDays(a, b){
   const out = []; const end = s2d(b); let cur = s2d(a);
   let guard = 0;
@@ -363,6 +400,7 @@ let myRequests = [];     // requests visible to me
 let roster = [];         // managers only
 let unsub = [];
 let calMonth = new Date(); calMonth.setDate(1);
+let activeYear = new Date().getFullYear();   // benefit year on screen
 let activeTab = "balances";
 
 const configured = !String(firebaseConfig.apiKey).startsWith("PASTE");
@@ -532,16 +570,31 @@ function startFeeds(){
 /* =========================================================================
    Balance math
    ========================================================================= */
-function balanceFor(user, typeId, requests){
+// Balances run on the calendar year and reset every January 1. The granted
+// hours stand each year; used and pending only count requests that start in
+// the year being looked at, so on January 1 the slate is clear on its own.
+// Carryover is tagged with the year it belongs to, so last year's leftover
+// hours do not follow a tech forward forever.
+function balanceFor(user, typeId, requests, year){
+  year = year || activeYear;
   const b = (user.balances && user.balances[typeId]) || { allotted:0, carryover:0 };
-  const total = Number(b.allotted || 0) + Number(b.carryover || 0);
+  const carry = (Number(b.carryoverYear || 0) === year) ? Number(b.carryover || 0) : 0;
+  const total = Number(b.allotted || 0) + carry;
   let used = 0, pending = 0;
   for (const r of requests){
     if (r.uid !== user.id || r.type !== typeId) continue;
+    if (yearOf(r.startDate) !== year) continue;
     if (r.status === "approved") used += Number(r.hours || 0);
     else if (r.status === "pending") pending += Number(r.hours || 0);
   }
-  return { total, used, pending, left: total - used - pending };
+  return { total, used, pending, carry, left: total - used - pending };
+}
+function yearOptions(){
+  const now = new Date().getFullYear();
+  let out = "";
+  for (let y = now - 2; y <= now + 1; y++)
+    out += `<option value="${y}" ${y===activeYear?"selected":""}>${y}</option>`;
+  return out;
 }
 function requestsForUser(uid){ return myRequests.filter(r => r.uid === uid); }
 
@@ -605,7 +658,8 @@ function viewBalances(){
   <section class="panel">
     <div class="panel-head">
       <h2>Hours on the books</h2>
-      <p class="note">One (1) day equals ${HOURS_PER_DAY} hours. Pending hours are held until a decision.</p>
+      <p class="note">One (1) day equals ${HOURS_PER_DAY} hours. Balances reset every January 1.</p>
+      <select id="yearPick" style="width:auto;margin-left:auto" aria-label="Benefit year">${yearOptions()}</select>
     </div>
     <div class="gauges">${gauges}</div>
   </section>
@@ -651,6 +705,11 @@ function gaugeHTML(label, b){
   </div>`;
 }
 const fmtHours = n => (Math.round(Number(n||0)*100)/100).toString();
+// Granted time is entered in days. One (1) day is HOURS_PER_DAY hours and a
+// half day is half that. Everything is stored and calculated in hours.
+const h2d = h => Math.round((Number(h||0) / HOURS_PER_DAY) * 100) / 100;
+const d2h = d => Number(d||0) * HOURS_PER_DAY;
+const fmtDays = n => { const d = h2d(n); return (d === Math.floor(d) ? d : d.toFixed(2).replace(/0$/,"")) + " d"; };
 
 function reqRow(r, mgrView){
   const t = typeOf(r.type);
@@ -676,7 +735,13 @@ function reqRow(r, mgrView){
   </div>`;
 }
 
+function wireYearPick(){
+  $$("#yearPick, #yearPickRoster").forEach(el => el.addEventListener("change", () => {
+    activeYear = Number(el.value); render();
+  }));
+}
 function wireCommonRequestButtons(){
+  wireYearPick();
   $$("[data-cancel]").forEach(b => b.addEventListener("click", async () => {
     if (!confirm("Cancel this request and release the hours?")) return;
     try { await updateDoc(doc(db,"requests",b.dataset.cancel), { status:"canceled", updatedAt:serverTimestamp() }); toast("Request canceled."); }
@@ -942,8 +1007,8 @@ function viewRoster(){
     const cells = TYPES.filter(t => t.tracked).map(t => {
       const b = balanceFor(u, t.id, myRequests);
       return `<td>
-        <input type="number" step="0.5" min="0" value="${Number(u.balances?.[t.id]?.allotted || 0)}" data-uid="${u.id}" data-type="${t.id}" data-field="allotted" style="max-width:74px">
-        <div class="hint">${fmtHours(b.used)} used · ${fmtHours(b.left)} left</div>
+        <input type="number" step="0.5" min="0" value="${h2d(u.balances?.[t.id]?.allotted)}" data-uid="${u.id}" data-type="${t.id}" data-field="allotted" data-unit="days" style="max-width:74px">
+        <div class="hint">${fmtDays(b.used)} used · ${fmtDays(b.left)} left</div>
       </td>`;
     }).join("");
     return `<tr>
@@ -967,17 +1032,18 @@ function viewRoster(){
   const carry = roster.map(u => `
     <tr>
       <td>${esc(u.name)}</td>
-      ${TYPES.filter(t=>t.tracked).map(t => `<td><input type="number" step="0.5" value="${Number(u.balances?.[t.id]?.carryover || 0)}" data-uid="${u.id}" data-type="${t.id}" data-field="carryover" style="max-width:74px"></td>`).join("")}
+      ${TYPES.filter(t=>t.tracked).map(t => `<td><input type="number" step="0.5" min="0" value="${h2d(u.balances?.[t.id]?.carryover)}" data-uid="${u.id}" data-type="${t.id}" data-field="carryover" data-unit="days" style="max-width:74px"></td>`).join("")}
     </tr>`).join("");
 
-  const th = TYPES.filter(t => t.tracked).map(t => `<th>${t.label} granted</th>`).join("");
-  const th2 = TYPES.filter(t => t.tracked).map(t => `<th>${t.label} carryover</th>`).join("");
+  const th = TYPES.filter(t => t.tracked).map(t => `<th>${t.label} granted (days)</th>`).join("");
+  const th2 = TYPES.filter(t => t.tracked).map(t => `<th>${t.label} carryover (days)</th>`).join("");
 
   return `
   <section class="panel">
     <div class="panel-head">
       <h2>Roster and allotments</h2>
-      <p class="note">Enter hours, not days. Changes save when you leave the box.</p>
+      <p class="note">Enter days. One (1) day equals ${HOURS_PER_DAY} hours, a half day equals ${HOURS_PER_DAY/2}. Granted days stand every year. Used and left shown for ${activeYear}.</p>
+      <select id="yearPickRoster" style="width:auto;margin-left:auto" aria-label="Benefit year">${yearOptions()}</select>
     </div>
     ${roster.length ? `<div class="tblwrap"><table class="grid">
       <thead><tr><th>Tech</th><th>Role</th>${th}<th>Status</th></tr></thead>
@@ -988,21 +1054,77 @@ function viewRoster(){
   <section class="panel">
     <div class="panel-head">
       <h2>Carryover from last year</h2>
-      <p class="note">Added on top of the granted hours.</p>
+      <p class="note">Added on top of the granted days.</p>
     </div>
     <div class="tblwrap"><table class="grid">
       <thead><tr><th>Tech</th>${th2}</tr></thead>
       <tbody>${carry}</tbody></table></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Year-end rollover</h2>
+      <p class="note">Run once in January. Everything else resets on its own.</p>
+    </div>
+    <p class="hint" style="margin-bottom:12px">
+      Carries each tech's unused ${activeYear - 1} days into ${activeYear}, up to the cap you set.
+      Leave a cap at zero (0) for use-it-or-lose-it. This overwrites the carryover column above.
+    </p>
+    <div class="row three">
+      ${TYPES.filter(t => t.tracked).map(t => `
+        <div class="field">
+          <label for="cap_${t.id}">${t.label} cap (days)</label>
+          <input id="cap_${t.id}" type="number" min="0" step="0.5" value="0">
+        </div>`).join("")}
+    </div>
+    <div id="rollMsg"></div>
+    <button class="btn" id="rolloverBtn">Roll unused hours into ${activeYear}</button>
   </section>`;
 }
+async function runRollover(){
+  const from = activeYear - 1, to = activeYear;
+  const caps = {};
+  TYPES.filter(t => t.tracked).forEach(t => caps[t.id] = d2h($("#cap_" + t.id)?.value || 0));
+  const techs = roster.filter(u => u.active !== false);
+  if (!techs.length) return msgTo("#rollMsg", "No active techs on the roster.", "err");
+  if (!confirm(`Roll unused ${from} hours into ${to} for ${techs.length} tech(s)? This overwrites the carryover column.`)) return;
+
+  const btn = $("#rolloverBtn"); btn.disabled = true; btn.innerHTML = 'Working <span class="spin"></span>';
+  const lines = [];
+  let failed = 0;
+  for (const u of techs){
+    const patch = {};
+    for (const t of TYPES.filter(x => x.tracked)){
+      const b = balanceFor(u, t.id, myRequests, from);
+      const carried = Math.max(0, Math.min(b.left, caps[t.id]));
+      patch[`balances.${t.id}.carryover`] = carried;
+      patch[`balances.${t.id}.carryoverYear`] = to;
+      if (carried > 0) lines.push(`${u.name}: ${fmtDays(carried)} ${t.label.toLowerCase()}`);
+    }
+    try { await updateDoc(doc(db,"users",u.id), patch); }
+    catch(e){ failed++; }
+  }
+  btn.disabled = false; btn.textContent = `Roll unused hours into ${to}`;
+  msgTo("#rollMsg", failed
+    ? `Finished with ${failed} error(s). Check your connection and run it again.`
+    : (lines.length ? `Carried into ${to} — ${lines.join("; ")}.` : `Nothing to carry. Every balance starts ${to} at the granted days.`),
+    failed ? "err" : "ok");
+}
+
 function wireRoster(){
+  $("#rolloverBtn")?.addEventListener("click", runRollover);
   $$('#views input[data-field], #views select[data-field]').forEach(el => {
     el.addEventListener("change", async () => {
       const uid = el.dataset.uid, field = el.dataset.field, type = el.dataset.type;
       let patch;
       if (field === "role") patch = { role: el.value };
       else if (field === "active") patch = { active: el.value === "true" };
-      else patch = { [`balances.${type}.${field}`]: Number(el.value || 0) };
+      else {
+        const hours = (el.dataset.unit === "days") ? d2h(el.value) : Number(el.value || 0);
+        patch = { [`balances.${type}.${field}`]: hours };
+        // carryover only counts for the year it was entered against
+        if (field === "carryover") patch[`balances.${type}.carryoverYear`] = activeYear;
+      }
       try { await updateDoc(doc(db,"users",uid), patch); toast("Saved."); }
       catch(e){ toast("Could not save: " + e.message, 5000); }
     });
