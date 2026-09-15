@@ -189,7 +189,12 @@
     /* the six-column grid becomes one card per week */
     #rotation thead{display:none;}
     #rotation,#rotation tbody,#rotation tr,#rotation td{display:block;width:auto;}
-    #rotation caption{font-size:13px;padding:0 0 10px;}
+    /* the table is display:block on phones, so the caption has to be too or
+       its containing block collapses and the text breaks one word per line */
+    #rotation caption{display:block;width:100%;max-width:100%;text-align:left;
+      font-size:13px;line-height:1.45;padding:0 0 10px;box-sizing:border-box;}
+    .yearbar{flex-wrap:wrap;gap:8px;padding:12px 12px 0;}
+    .yearbar .nowchip,.yearbar #nowChip{flex:1 1 100%;font-size:13px;line-height:1.4;}
     #rotation tr{border:1px solid var(--line);border-radius:9px;background:#fff;
       margin:0 0 12px;padding:11px 13px 13px;}
     #rotation tr:nth-child(odd) td{background:transparent;}
