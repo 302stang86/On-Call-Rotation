@@ -356,9 +356,8 @@
           <li><strong>First Up</strong> is the primary on-call technician. <strong>Second Up</strong> is the backup if First Up is unavailable.</li>
           <li>For vacation or personal time, note it and reassign that week's dropdowns. Keep two different techs per week; a duplicate is flagged red.</li>
           <li>The current week is highlighted in green. Pick a date from the calendar to outline that week in dark red.</li>
-          <li>Weeks containing a U.S. federal holiday are marked with a ★ and the holiday name so techs can plan ahead.</li>
+          <li>Weeks containing a U.S. federal holiday are marked with a ★ and the holiday name to help technicians plan ahead. Refer to Fire Defense Equipment Co. policies for information regarding holiday pay, paid holidays, and eligible holidays.</li>
           <li>The rotation runs continuously from 2026 into 2027, advancing one technician each week.</li>
-          <li>Refer to Fire Defense Equipment Co. policies regarding holiday pay, holiday paid days off, and which holidays are included.</li>
         </ul>
       </div>
     </section>
@@ -631,7 +630,7 @@
     }
 
     document.getElementById("tableCap").textContent =
-      "Showing "+viewYear+". Assign First Up (primary) and Second Up (backup) per week; Request an on-call rotation change at bottom of page to request changes or swaps.";
+      "Showing "+viewYear+". Assign First Up (primary) and Second Up (backup) per week; Request an on-call rotation change at bottom of this page.";
 
     var rows=document.getElementById("rows"); rows.innerHTML="";
     WEEKS.forEach(function(w,i){
