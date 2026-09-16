@@ -46,6 +46,12 @@
   .hint{font-size:12.5px;color:var(--muted);}
 
   .yearbar{display:flex;align-items:center;gap:0;padding:16px 32px 0;}
+  .monthnav{display:flex;align-items:center;gap:4px;margin-left:12px;}
+  .mnav{border:1px solid var(--line);background:#fff;color:var(--navy);border-radius:7px;
+    width:34px;height:34px;font-size:19px;line-height:1;cursor:pointer;}
+  .mnav:hover{background:var(--grey);}
+  .mnav:disabled{opacity:.35;cursor:not-allowed;}
+  .monthlabel{font-weight:800;color:var(--navy);font-size:15px;min-width:132px;text-align:center;}
   .calbtn{display:inline-flex;align-items:center;gap:10px;border:1px solid var(--navy);background:#fff;color:var(--navy);font-weight:800;font-size:14px;padding:10px 18px;border-radius:6px;cursor:pointer;}
   .calbtn:hover{background:var(--blue-soft);}
   .calbtn svg{display:block;}
@@ -193,6 +199,9 @@
     #rotation caption{display:block;width:100%;max-width:100%;text-align:left;
       font-size:13px;line-height:1.45;padding:0 0 10px;box-sizing:border-box;}
     .yearbar{flex-wrap:wrap;gap:8px;padding:12px 12px 0;}
+    .monthnav{margin-left:0;flex:1 1 100%;justify-content:center;}
+    .mnav{width:44px;height:44px;}
+    .monthlabel{flex:1;font-size:16px;}
     .yearbar .nowchip,.yearbar #nowChip{flex:1 1 100%;font-size:13px;line-height:1.4;}
     #rotation tr{border:1px solid var(--line);border-radius:9px;background:#fff;
       margin:0 0 12px;padding:11px 13px 13px;}
@@ -274,6 +283,11 @@
       </svg>
       <span class="calbtn-label">Calendar</span>
     </button>
+    <div class="monthnav">
+      <button class="mnav" id="monthPrev" type="button" aria-label="Previous month">&#8249;</button>
+      <span class="monthlabel" id="monthLabel"></span>
+      <button class="mnav" id="monthNext" type="button" aria-label="Next month">&#8250;</button>
+    </div>
     <span class="nowchip" id="nowChip"></span>
   </div>
 
@@ -625,11 +639,33 @@
   })();
 
 
-  var viewYear = (function(){
-    var y=new Date().getFullYear();
-    if(y===2026||y===2027) return y;
-    return (NOW_I>=0)? WEEKS[NOW_I].start.getFullYear() : 2026;
+  var viewYear, viewMonth;
+  (function(){
+    var anchor = (NOW_I>=0) ? WEEKS[NOW_I].start : WEEKS[0].start;
+    viewYear = anchor.getFullYear(); viewMonth = anchor.getMonth();
   })();
+  var MONTH_NAMES = ["January","February","March","April","May","June",
+                     "July","August","September","October","November","December"];
+  // A week belongs to the month on screen if any of its seven days fall in it,
+  // so a week straddling the turn of the month shows under both.
+  function weekInView(w){
+    return (w.start.getFullYear()===viewYear && w.start.getMonth()===viewMonth)
+        || (w.end.getFullYear()===viewYear   && w.end.getMonth()===viewMonth);
+  }
+  function monthIndex(y,m){ return y*12+m; }
+  function viewBounds(){
+    return { min: monthIndex(WEEKS[0].start.getFullYear(), WEEKS[0].start.getMonth()),
+             max: monthIndex(WEEKS[WEEKS.length-1].start.getFullYear(), WEEKS[WEEKS.length-1].start.getMonth()) };
+  }
+  function stepMonth(delta){
+    var idx = monthIndex(viewYear, viewMonth) + delta, b = viewBounds();
+    if(idx < b.min || idx > b.max) return;
+    viewYear = Math.floor(idx/12); viewMonth = idx%12; render();
+  }
+  function showWeek(i){
+    if(i<0) return;
+    viewYear = WEEKS[i].start.getFullYear(); viewMonth = WEEKS[i].start.getMonth();
+  }
 
   function escapeHtml(s){return String(s||"").replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
 
@@ -653,12 +689,19 @@
       chip.textContent="Today is outside the rotation range.";
     }
 
+    var lbl=document.getElementById("monthLabel");
+    if(lbl) lbl.textContent = MONTH_NAMES[viewMonth]+" "+viewYear;
+    var b=viewBounds(), cur=monthIndex(viewYear,viewMonth);
+    var pv=document.getElementById("monthPrev"), nx=document.getElementById("monthNext");
+    if(pv) pv.disabled = (cur<=b.min);
+    if(nx) nx.disabled = (cur>=b.max);
+
     document.getElementById("tableCap").textContent =
-      "Showing "+viewYear+". Assign First Up (primary) and Second Up (backup) per week; use notes for vacation, personal time, or swaps.";
+      "Showing "+MONTH_NAMES[viewMonth]+" "+viewYear+". Assign First Up (primary) and Second Up (backup) per week; use notes for vacation, personal time, or swaps. Use the arrows or the calendar for other months.";
 
     var rows=document.getElementById("rows"); rows.innerHTML="";
     WEEKS.forEach(function(w,i){
-      if(w.start.getFullYear()!==viewYear) return;
+      if(!weekInView(w)) return;
       var a=state.assign[i];
       var conflict=(a.first===a.second);
       var prev=(i>0)? state.assign[i-1] : null;
@@ -708,12 +751,12 @@
     var first={}, second={};
     state.roster.forEach(function(t){first[t]=0;second[t]=0;});
     WEEKS.forEach(function(w,i){
-      if(w.start.getFullYear()!==viewYear) return;
+      if(w.start.getFullYear()!==viewYear) return;   // tally covers the whole year
       var a=state.assign[i];
       if(first.hasOwnProperty(a.first)) first[a.first]++;
       if(second.hasOwnProperty(a.second)) second[a.second]++;
     });
-    document.getElementById("tallyCap").textContent="On-call weeks in "+viewYear+" by technician.";
+    document.getElementById("tallyCap").textContent="On-call weeks across all of "+viewYear+" by technician, not just the month shown above.";
     var body=document.getElementById("tallyRows"); body.innerHTML="";
     var totals=[];
     state.roster.forEach(function(t){
@@ -860,7 +903,7 @@
         (function(dd){
           function go(){
             var wi=weekIndexForDate(dd);
-            if(wi>=0){ selectedWeek=wi; viewYear=WEEKS[wi].start.getFullYear(); render(); closeCal();
+            if(wi>=0){ selectedWeek=wi; showWeek(wi); render(); closeCal();
               var r=document.getElementById("wk-"+wi); if(r) r.scrollIntoView({behavior:"smooth",block:"center"});
             }
           }
@@ -886,7 +929,7 @@
 
   document.getElementById("jumpNow").addEventListener("click",function(){
     if(NOW_I<0){ alert("Today is outside the rotation range (Sep 2026 – Dec 2027)."); return; }
-    viewYear=WEEKS[NOW_I].start.getFullYear();
+    showWeek(NOW_I);
     render();
     var r=document.getElementById("wk-"+NOW_I);
     if(r) r.scrollIntoView({behavior:"smooth",block:"center"});
@@ -898,12 +941,15 @@
     if(!unlocked){ alert("Unlock admin editing first."); return; }
     if(confirm("Reset the roster and deal a new random rotation? This clears all edits and notes.")){
       state=freshState(true); save();
-      viewYear=(new Date().getFullYear()===2027)?2027:2026;
+      showWeek(NOW_I>=0?NOW_I:0);
       render();
       alert("New rotation order:\n\n"+techsOnly(state.roster).join("  ->  ")
         +"\n\nHoliday weeks are balanced across this order. Reset again for a different draw.");
     }
   });
+
+  document.getElementById("monthPrev").addEventListener("click",function(){ stepMonth(-1); });
+  document.getElementById("monthNext").addEventListener("click",function(){ stepMonth(1); });
 
   document.getElementById("balBtn").addEventListener("click",function(){
     if(!unlocked) return;

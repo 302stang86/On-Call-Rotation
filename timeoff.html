@@ -312,8 +312,8 @@ pre{background:#F1F3F5;border:1px solid var(--line);border-radius:var(--radius);
 <!-- no profile yet -->
 <div class="wrap hide" id="pendingView">
   <section class="panel">
-    <h2>Your balances are not set yet</h2>
-    <p>Your account is active, but no one has entered your vacation, personal, and sick hours. Ask Mitchell to set them on the roster, then reload this page.</p>
+    <h2>Account not ready</h2>
+    <p>Your sign-in worked, but your profile did not finish setting up. Reload the page, and if it keeps happening let Mitchell know.</p>
     <button class="btn ghost" id="reloadBtn">Reload</button>
   </section>
 </div>
@@ -354,7 +354,7 @@ const TYPES = [
 ];
 // >>> CHANGE THIS to your real work email domain before you share the link. <<<
 // Only addresses on these domains can create an account.
-const ALLOWED_EMAIL_DOMAINS = ["mp1@firedefense.com"];
+const ALLOWED_EMAIL_DOMAINS = ["firedefense.com"];
 
 const COVERAGE_WARN_AT = 2; // warn the manager when this many techs are off the same day
 
@@ -397,11 +397,8 @@ let app, auth, db;
 let me = null;           // firebase auth user
 let profile = null;      // users/{uid}
 let myRequests = [];     // requests visible to me
-let roster = [];         // managers only
 let unsub = [];
-let calMonth = new Date(); calMonth.setDate(1);
-let activeYear = new Date().getFullYear();   // benefit year on screen
-let activeTab = "balances";
+let activeTab = "request";
 
 const configured = !String(firebaseConfig.apiKey).startsWith("PASTE");
 
@@ -506,7 +503,7 @@ function authError(e){
 
 async function onAuth(user){
   unsub.forEach(fn => fn()); unsub = [];
-  me = user; profile = null; myRequests = []; roster = [];
+  me = user; profile = null; myRequests = [];
   if (!user){ show("gateView"); $("#whoami").textContent = ""; $("#signOutBtn").classList.add("hide"); return; }
 
   $("#signOutBtn").classList.remove("hide");
@@ -559,58 +556,19 @@ function startFeeds(){
     e => toast("Could not load requests: " + e.message, 5000)
   ));
 
-  if (isMgr){
-    unsub.push(onSnapshot(collection(db, "users"),
-      s => { roster = s.docs.map(d => ({ id:d.id, ...d.data() })).sort((a,b)=> (a.name||"").localeCompare(b.name||"")); render(); },
-      e => toast("Could not load the roster: " + e.message, 5000)
-    ));
-  }
 }
 
 /* =========================================================================
    Balance math
    ========================================================================= */
-// Balances run on the calendar year and reset every January 1. The granted
-// hours stand each year; used and pending only count requests that start in
-// the year being looked at, so on January 1 the slate is clear on its own.
-// Carryover is tagged with the year it belongs to, so last year's leftover
-// hours do not follow a tech forward forever.
-function balanceFor(user, typeId, requests, year){
-  year = year || activeYear;
-  const b = (user.balances && user.balances[typeId]) || { allotted:0, carryover:0 };
-  const carry = (Number(b.carryoverYear || 0) === year) ? Number(b.carryover || 0) : 0;
-  const total = Number(b.allotted || 0) + carry;
-  let used = 0, pending = 0;
-  for (const r of requests){
-    if (r.uid !== user.id || r.type !== typeId) continue;
-    if (yearOf(r.startDate) !== year) continue;
-    if (r.status === "approved") used += Number(r.hours || 0);
-    else if (r.status === "pending") pending += Number(r.hours || 0);
-  }
-  return { total, used, pending, carry, left: total - used - pending };
-}
-function yearOptions(){
-  const now = new Date().getFullYear();
-  let out = "";
-  for (let y = now - 2; y <= now + 1; y++)
-    out += `<option value="${y}" ${y===activeYear?"selected":""}>${y}</option>`;
-  return out;
-}
 function requestsForUser(uid){ return myRequests.filter(r => r.uid === uid); }
 
 /* =========================================================================
    Tabs
    ========================================================================= */
 function tabList(){
-  const t = [
-    { id:"balances", label:"My time" },
-    { id:"request",  label:"Request time off" }
-  ];
-  if (profile.role === "manager"){
-    t.push({ id:"approvals", label:"Approvals" });
-    t.push({ id:"calendar",  label:"Coverage" });
-    t.push({ id:"roster",    label:"Roster" });
-  }
+  const t = [{ id:"request", label:"Request time off" }];
+  if (profile.role === "manager") t.push({ id:"approvals", label:"Approvals" });
   return t;
 }
 function buildTabs(){
@@ -631,85 +589,12 @@ function buildTabs(){
 function render(){
   if (!profile) return;
   const v = $("#views");
-  if (activeTab === "balances")  v.innerHTML = viewBalances();
   if (activeTab === "request")   { v.innerHTML = viewRequest(); wireRequest(); }
   if (activeTab === "approvals") { v.innerHTML = viewApprovals(); wireApprovals(); }
-  if (activeTab === "calendar")  { v.innerHTML = viewCalendar(); wireCalendar(); }
-  if (activeTab === "roster")    { v.innerHTML = viewRoster(); wireRoster(); }
   wireCommonRequestButtons();
 }
 
-/* ---------- My time ---------- */
-function viewBalances(){
-  const mine = requestsForUser(me.uid);
-  const gauges = TYPES.filter(t => t.tracked).map(t => {
-    const b = balanceFor(profile, t.id, mine);
-    return gaugeHTML(t.label, b);
-  }).join("");
-
-  const upcoming = mine
-    .filter(r => (r.endDate || r.startDate) >= todayStr() && r.status !== "canceled" && r.status !== "denied")
-    .sort((a,b) => (a.startDate||"").localeCompare(b.startDate||""));
-  const past = mine
-    .filter(r => !upcoming.includes(r))
-    .sort((a,b) => (b.startDate||"").localeCompare(a.startDate||""));
-
-  return `
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Hours on the books</h2>
-      <p class="note">One (1) day equals ${HOURS_PER_DAY} hours. Balances reset every January 1.</p>
-      <select id="yearPick" style="width:auto;margin-left:auto" aria-label="Benefit year">${yearOptions()}</select>
-    </div>
-    <div class="gauges">${gauges}</div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head"><h2>Coming up</h2></div>
-    ${upcoming.length ? `<div class="reqs">${upcoming.map(r => reqRow(r, false)).join("")}</div>`
-      : `<p class="empty">Nothing scheduled. Open the request tab to put in for time off.</p>`}
-  </section>
-
-  <section class="panel">
-    <div class="panel-head"><h2>History</h2></div>
-    ${past.length ? `<div class="reqs">${past.slice(0,40).map(r => reqRow(r, false)).join("")}</div>`
-      : `<p class="empty">No past requests yet.</p>`}
-  </section>`;
-}
-
-function gaugeHTML(label, b){
-  const total = Math.max(b.total, b.used + b.pending, 1);
-  const pct = n => Math.max(0, Math.min(100, (n / total) * 100));
-  const ticks = [];
-  const days = Math.round(total / HOURS_PER_DAY);
-  if (days > 1 && days <= 40){
-    for (let i = 1; i < days; i++) ticks.push(`<i style="left:${(i/days)*100}%"></i>`);
-  }
-  return `
-  <div class="gauge ${b.left < 0 ? "over" : ""}">
-    <div class="top">
-      <span class="name">${esc(label)}</span>
-      <span><span class="big">${fmtHours(b.left)}</span><span class="unit">hrs left</span></span>
-    </div>
-    <div class="track" role="img" aria-label="${esc(label)}: ${fmtHours(b.used)} used, ${fmtHours(b.pending)} pending, ${fmtHours(b.left)} left of ${fmtHours(b.total)}">
-      <div class="seg-used" style="width:${pct(b.used)}%"></div>
-      <div class="seg-pend" style="width:${pct(b.pending)}%"></div>
-      <div class="seg-left" style="flex:1"></div>
-      <div class="ticks">${ticks.join("")}</div>
-    </div>
-    <div class="legend">
-      <span><i class="swatch sw-used"></i>${fmtHours(b.used)} used</span>
-      <span><i class="swatch sw-pend"></i>${fmtHours(b.pending)} pending</span>
-      <span><i class="swatch sw-left"></i>${fmtHours(b.total)} granted</span>
-    </div>
-  </div>`;
-}
 const fmtHours = n => (Math.round(Number(n||0)*100)/100).toString();
-// Granted time is entered in days. One (1) day is HOURS_PER_DAY hours and a
-// half day is half that. Everything is stored and calculated in hours.
-const h2d = h => Math.round((Number(h||0) / HOURS_PER_DAY) * 100) / 100;
-const d2h = d => Number(d||0) * HOURS_PER_DAY;
-const fmtDays = n => { const d = h2d(n); return (d === Math.floor(d) ? d : d.toFixed(2).replace(/0$/,"")) + " d"; };
 
 function reqRow(r, mgrView){
   const t = typeOf(r.type);
@@ -735,13 +620,7 @@ function reqRow(r, mgrView){
   </div>`;
 }
 
-function wireYearPick(){
-  $$("#yearPick, #yearPickRoster").forEach(el => el.addEventListener("change", () => {
-    activeYear = Number(el.value); render();
-  }));
-}
 function wireCommonRequestButtons(){
-  wireYearPick();
   $$("[data-cancel]").forEach(b => b.addEventListener("click", async () => {
     if (!confirm("Cancel this request and release the hours?")) return;
     try { await updateDoc(doc(db,"requests",b.dataset.cancel), { status:"canceled", updatedAt:serverTimestamp() }); toast("Request canceled."); }
@@ -767,6 +646,11 @@ let formStart = todayStr(), formEnd = todayStr(), formType = "vacation";
 
 function viewRequest(){
   const opts = TYPES.map(t => `<option value="${t.id}" ${t.id===formType?"selected":""}>${t.label}</option>`).join("");
+  const mine = requestsForUser(me.uid);
+  const upcoming = mine
+    .filter(r => (r.endDate || r.startDate) >= todayStr() && r.status !== "canceled" && r.status !== "denied")
+    .sort((a,b) => (a.startDate||"").localeCompare(b.startDate||""));
+  const past = mine.filter(r => !upcoming.includes(r));
   return `
   <section class="panel">
     <div class="panel-head">
@@ -811,6 +695,18 @@ function viewRequest(){
       <button class="btn primary" id="fSubmit">Submit request</button>
       <button class="btn ghost" id="fClear">Clear</button>
     </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Coming up</h2></div>
+    ${upcoming.length ? `<div class="reqs">${upcoming.map(r => reqRow(r, false)).join("")}</div>`
+      : `<p class="empty">Nothing scheduled yet.</p>`}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Past requests</h2></div>
+    ${past.length ? `<div class="reqs">${past.slice(0,30).map(r => reqRow(r, false)).join("")}</div>`
+      : `<p class="empty">No past requests.</p>`}
   </section>`;
 }
 
@@ -843,15 +739,7 @@ function wireRequest(){
   const paintTotals = () => {
     const total = Object.values(formDays).reduce((a,b) => a + Number(b||0), 0);
     $("#fTotal").value = `${fmtHours(total)} hrs (${fmtHours(total/HOURS_PER_DAY)} days)`;
-    const t = typeOf(formType);
     let html = "";
-    if (t.tracked){
-      const b = balanceFor(profile, formType, requestsForUser(me.uid));
-      const after = b.left - total;
-      if (after < 0) html = `<div class="msg err">This puts you ${fmtHours(Math.abs(after))} hours past your ${t.label.toLowerCase()} balance. Submit it only if your manager already approved going negative.</div>`;
-      else if (after < HOURS_PER_DAY) html = `<div class="msg warn">This leaves ${fmtHours(after)} ${t.label.toLowerCase()} hours for the rest of the year.</div>`;
-      else html = `<div class="msg ok">Leaves ${fmtHours(after)} ${t.label.toLowerCase()} hours after approval.</div>`;
-    }
     const overlap = myRequests.filter(r =>
       r.uid === me.uid && r.status !== "canceled" && r.status !== "denied" &&
       !(r.endDate < formStart || r.startDate > formEnd));
@@ -888,9 +776,8 @@ async function submitRequest(){
     });
     formDays = {};
     toast("Request submitted. Your manager sees it now.");
-    activeTab = "balances";
-    $$("#tabs .tab").forEach(x => x.setAttribute("aria-selected", String(x.dataset.tab === activeTab)));
     render();
+    window.scrollTo({ top: 0 });
   } catch(e){
     msgTo("#formMsg", "Could not submit: " + e.message, "err");
     btn.disabled = false; btn.textContent = "Submit request";
@@ -949,187 +836,6 @@ function wireApprovals(){
   });
 }
 
-/* ---------- Coverage calendar ---------- */
-function viewCalendar(){
-  const y = calMonth.getFullYear(), m = calMonth.getMonth();
-  const first = new Date(y, m, 1), last = new Date(y, m+1, 0);
-  const start = new Date(first); start.setDate(1 - first.getDay());
-  const cells = [];
-  for (let i = 0; i < 42; i++){ const d = new Date(start); d.setDate(start.getDate()+i); cells.push(d2s(d)); }
-
-  const byDate = {};
-  for (const r of myRequests){
-    if (r.status === "denied" || r.status === "canceled") continue;
-    for (const d of (r.days || [])){
-      if (!d.hours) continue;
-      (byDate[d.date] ||= []).push({ name:r.name, type:r.type, hours:d.hours, status:r.status });
-    }
-  }
-  const head = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => `<th>${d}</th>`).join("");
-  let body = "";
-  for (let w = 0; w < 6; w++){
-    const week = cells.slice(w*7, w*7+7);
-    if (week.every(s => s2d(s).getMonth() !== m)) continue;
-    body += "<tr>" + week.map(s => {
-      const out = s2d(s).getMonth() !== m;
-      const list = (byDate[s] || []).map(p =>
-        `<span class="who ${esc(p.type)} ${p.status==="pending"?"tentative":""}" title="${esc(p.name)} · ${typeOf(p.type).label} · ${p.hours} hrs · ${p.status}">${esc(p.name.split(" ")[0])}${p.hours < HOURS_PER_DAY ? " ½" : ""}</span>`
-      ).join("");
-      return `<td class="${out?"out":""} ${s===todayStr()?"today":""}"><div class="dn">${s2d(s).getDate()}</div>${list}</td>`;
-    }).join("") + "</tr>";
-  }
-  const label = calMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"});
-  return `
-  <section class="panel">
-    <div class="calbar">
-      <button class="btn ghost small" id="prevMo">Previous</button>
-      <span class="mo">${label}</span>
-      <button class="btn ghost small" id="nextMo">Next</button>
-      <button class="btn ghost small" id="thisMo">Today</button>
-    </div>
-    <table class="cal"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
-    <div class="legend" style="margin-top:12px">
-      ${TYPES.map(t => `<span><i class="swatch" style="background:#fff;border-left:3px solid ${t.id==="vacation"?"var(--green)":t.id==="personal"?"var(--slate)":t.id==="sick"?"var(--brass)":"var(--steel)"}"></i>${t.label}</span>`).join("")}
-      <span>Italic names are still pending</span>
-      <span>½ marks a partial day</span>
-    </div>
-  </section>`;
-}
-function wireCalendar(){
-  $("#prevMo").addEventListener("click", () => { calMonth.setMonth(calMonth.getMonth()-1); render(); });
-  $("#nextMo").addEventListener("click", () => { calMonth.setMonth(calMonth.getMonth()+1); render(); });
-  $("#thisMo").addEventListener("click", () => { calMonth = new Date(); calMonth.setDate(1); render(); });
-}
-
-/* ---------- Roster ---------- */
-function viewRoster(){
-  const rows = roster.map(u => {
-    const cells = TYPES.filter(t => t.tracked).map(t => {
-      const b = balanceFor(u, t.id, myRequests);
-      return `<td>
-        <input type="number" step="0.5" min="0" value="${h2d(u.balances?.[t.id]?.allotted)}" data-uid="${u.id}" data-type="${t.id}" data-field="allotted" data-unit="days" style="max-width:74px">
-        <div class="hint">${fmtDays(b.used)} used · ${fmtDays(b.left)} left</div>
-      </td>`;
-    }).join("");
-    return `<tr>
-      <td><strong>${esc(u.name)}</strong><div class="hint">${esc(u.email || "")}</div></td>
-      <td>
-        <select data-uid="${u.id}" data-field="role">
-          <option value="tech" ${u.role==="tech"?"selected":""}>Technician</option>
-          <option value="manager" ${u.role==="manager"?"selected":""}>Manager</option>
-        </select>
-      </td>
-      ${cells}
-      <td>
-        <select data-uid="${u.id}" data-field="active">
-          <option value="true" ${u.active!==false?"selected":""}>Active</option>
-          <option value="false" ${u.active===false?"selected":""}>Inactive</option>
-        </select>
-      </td>
-    </tr>`;
-  }).join("");
-
-  const carry = roster.map(u => `
-    <tr>
-      <td>${esc(u.name)}</td>
-      ${TYPES.filter(t=>t.tracked).map(t => `<td><input type="number" step="0.5" min="0" value="${h2d(u.balances?.[t.id]?.carryover)}" data-uid="${u.id}" data-type="${t.id}" data-field="carryover" data-unit="days" style="max-width:74px"></td>`).join("")}
-    </tr>`).join("");
-
-  const th = TYPES.filter(t => t.tracked).map(t => `<th>${t.label} granted (days)</th>`).join("");
-  const th2 = TYPES.filter(t => t.tracked).map(t => `<th>${t.label} carryover (days)</th>`).join("");
-
-  return `
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Roster and allotments</h2>
-      <p class="note">Enter days. One (1) day equals ${HOURS_PER_DAY} hours, a half day equals ${HOURS_PER_DAY/2}. Granted days stand every year. Used and left shown for ${activeYear}.</p>
-      <select id="yearPickRoster" style="width:auto;margin-left:auto" aria-label="Benefit year">${yearOptions()}</select>
-    </div>
-    ${roster.length ? `<div class="tblwrap"><table class="grid">
-      <thead><tr><th>Tech</th><th>Role</th>${th}<th>Status</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>`
-      : `<p class="empty">No accounts yet. Create sign-ins under Authentication in the Firebase console, then have each tech sign in once to land on this list.</p>`}
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Carryover from last year</h2>
-      <p class="note">Added on top of the granted days.</p>
-    </div>
-    <div class="tblwrap"><table class="grid">
-      <thead><tr><th>Tech</th>${th2}</tr></thead>
-      <tbody>${carry}</tbody></table></div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Year-end rollover</h2>
-      <p class="note">Run once in January. Everything else resets on its own.</p>
-    </div>
-    <p class="hint" style="margin-bottom:12px">
-      Carries each tech's unused ${activeYear - 1} days into ${activeYear}, up to the cap you set.
-      Leave a cap at zero (0) for use-it-or-lose-it. This overwrites the carryover column above.
-    </p>
-    <div class="row three">
-      ${TYPES.filter(t => t.tracked).map(t => `
-        <div class="field">
-          <label for="cap_${t.id}">${t.label} cap (days)</label>
-          <input id="cap_${t.id}" type="number" min="0" step="0.5" value="0">
-        </div>`).join("")}
-    </div>
-    <div id="rollMsg"></div>
-    <button class="btn" id="rolloverBtn">Roll unused hours into ${activeYear}</button>
-  </section>`;
-}
-async function runRollover(){
-  const from = activeYear - 1, to = activeYear;
-  const caps = {};
-  TYPES.filter(t => t.tracked).forEach(t => caps[t.id] = d2h($("#cap_" + t.id)?.value || 0));
-  const techs = roster.filter(u => u.active !== false);
-  if (!techs.length) return msgTo("#rollMsg", "No active techs on the roster.", "err");
-  if (!confirm(`Roll unused ${from} hours into ${to} for ${techs.length} tech(s)? This overwrites the carryover column.`)) return;
-
-  const btn = $("#rolloverBtn"); btn.disabled = true; btn.innerHTML = 'Working <span class="spin"></span>';
-  const lines = [];
-  let failed = 0;
-  for (const u of techs){
-    const patch = {};
-    for (const t of TYPES.filter(x => x.tracked)){
-      const b = balanceFor(u, t.id, myRequests, from);
-      const carried = Math.max(0, Math.min(b.left, caps[t.id]));
-      patch[`balances.${t.id}.carryover`] = carried;
-      patch[`balances.${t.id}.carryoverYear`] = to;
-      if (carried > 0) lines.push(`${u.name}: ${fmtDays(carried)} ${t.label.toLowerCase()}`);
-    }
-    try { await updateDoc(doc(db,"users",u.id), patch); }
-    catch(e){ failed++; }
-  }
-  btn.disabled = false; btn.textContent = `Roll unused hours into ${to}`;
-  msgTo("#rollMsg", failed
-    ? `Finished with ${failed} error(s). Check your connection and run it again.`
-    : (lines.length ? `Carried into ${to} — ${lines.join("; ")}.` : `Nothing to carry. Every balance starts ${to} at the granted days.`),
-    failed ? "err" : "ok");
-}
-
-function wireRoster(){
-  $("#rolloverBtn")?.addEventListener("click", runRollover);
-  $$('#views input[data-field], #views select[data-field]').forEach(el => {
-    el.addEventListener("change", async () => {
-      const uid = el.dataset.uid, field = el.dataset.field, type = el.dataset.type;
-      let patch;
-      if (field === "role") patch = { role: el.value };
-      else if (field === "active") patch = { active: el.value === "true" };
-      else {
-        const hours = (el.dataset.unit === "days") ? d2h(el.value) : Number(el.value || 0);
-        patch = { [`balances.${type}.${field}`]: hours };
-        // carryover only counts for the year it was entered against
-        if (field === "carryover") patch[`balances.${type}.carryoverYear`] = activeYear;
-      }
-      try { await updateDoc(doc(db,"users",uid), patch); toast("Saved."); }
-      catch(e){ toast("Could not save: " + e.message, 5000); }
-    });
-  });
-}
 </script>
 </body>
 </html>
