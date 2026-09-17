@@ -384,7 +384,7 @@
           <input id="newTech" type="text" placeholder="Add technician name…" aria-label="New technician name">
           <button id="addTech" type="button">Add</button>
         </div>
-        <p class="rosterhint">Roster changes apply to upcoming weeks only. Past and current weeks keep their assignments. Any two techs may share a week as First Up and Second Up. Managers are listed for reference only and are never placed in the rotation.</p>
+        <p class="rosterhint">Roster changes apply to upcoming weeks only. Past and current weeks keep their assignments. Any two techs may share a week as First Up and Second Up. Second Up is never First Up the following week. Managers are listed for reference only and are never placed in the rotation.</p>
       </div>
     </section>
 
@@ -480,6 +480,9 @@
     // nobody repeats the same role on back-to-back weeks
     if(p  && (p.first===a.first  || p.second===a.second))  return false;
     if(nx && (nx.first===a.first || nx.second===a.second)) return false;
+    // Second Up one week is not First Up the next
+    if(nx && nx.first===a.second) return false;
+    if(p  && p.second===a.first)  return false;
     return true;
   }
 
@@ -488,7 +491,9 @@
   function repairAdjacency(assign, startIdx){
     var fixed=0;
     for(var i=Math.max(startIdx,1);i<assign.length;i++){
-      if(assign[i].first!==assign[i-1].first && assign[i].second!==assign[i-1].second) continue;
+      if(assign[i].first!==assign[i-1].first
+      && assign[i].second!==assign[i-1].second
+      && assign[i].first!==assign[i-1].second) continue;
       for(var j=startIdx;j<assign.length;j++){
         if(j===i || j===i-1 || j===i+1) continue;
         var a=assign[i], b=assign[j];
@@ -500,35 +505,55 @@
     }
     return fixed;
   }
+  // Seeded so every browser holding the same roster builds the same schedule.
+  function mulberry32(a){
+    return function(){
+      a|=0; a=a+0x6D2B79F5|0;
+      var t=Math.imul(a^a>>>15, 1|a);
+      t=t+Math.imul(t^t>>>7, 61|t)^t;
+      return ((t^t>>>14)>>>0)/4294967296;
+    };
+  }
+  function seedOf(order){
+    var h=2166136261, str=order.join("|");
+    for(var i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); }
+    return h>>>0;
+  }
+  function holidaySpread(assign, roster){
+    var c=holidayCounts(assign, roster);
+    var v=techsOnly(roster).map(function(t){ return c[t]||0; });
+    if(!v.length) return 0;
+    return Math.max.apply(null,v) - Math.min.apply(null,v);
+  }
+  function holidayScore(assign, roster){
+    var c=holidayCounts(assign, roster);
+    var v=techsOnly(roster).map(function(t){ return c[t]||0; });
+    if(!v.length) return 0;
+    var mean=v.reduce(function(a,b){return a+b;},0)/v.length;
+    return v.reduce(function(a,x){ return a + (x-mean)*(x-mean); },0);
+  }
+
+  // Local search. Trades whole weeks at random, keeping any trade that leaves
+  // the holiday load no more lopsided than before. Accepting sideways trades is
+  // what lets it work around the pairing rules a strict greedy pass gets stuck
+  // on. Stops as soon as the spread is one (1) week or less.
   function balanceHolidays(assign, roster, startIdx){
     var techs = techsOnly(roster);
-    if(techs.length<3) return 0;
-    var moves=0, guard=0;
-    while(guard++ < 500){
-      var c = holidayCounts(assign, roster);
-      var vals = techs.map(function(t){ return c[t]||0; });
-      var hi = Math.max.apply(null, vals), lo = Math.min.apply(null, vals);
-      if(hi - lo <= 1) break;                        // as even as it can get
-      var heavy = techs.filter(function(t){ return (c[t]||0)===hi; });
-      var light = techs.filter(function(t){ return (c[t]||0)===lo; });
-      var swapped = false;
-      for(var i=startIdx;i<assign.length && !swapped;i++){
-        if(!HOLIDAY_WEEK[i]) continue;
-        if(heavy.indexOf(assign[i].first)===-1) continue;
-        for(var j=startIdx;j<assign.length;j++){
-          if(HOLIDAY_WEEK[j]) continue;
-          if(light.indexOf(assign[j].first)===-1) continue;
-          // Trade the whole week, First Up and Second Up together. Both weeks
-          // were already valid, so the pairing rules survive the swap and each
-          // tech keeps the same number of first and second turns.
-          var a=assign[i], b=assign[j];
-          assign[i]={first:b.first, second:b.second, note:a.note};
-          assign[j]={first:a.first, second:a.second, note:b.note};
-          if(weekOk(assign,i) && weekOk(assign,j)){ swapped=true; moves++; break; }
-          assign[i]=a; assign[j]=b;                  // revert, keep looking
-        }
-      }
-      if(!swapped) break;                            // nothing legal left to trade
+    if(techs.length < 3) return 0;
+    var rnd = mulberry32(seedOf(techs));
+    var cur = holidayScore(assign, roster), moves = 0, N = assign.length;
+    for(var it=0; it<6000; it++){
+      if(holidaySpread(assign, roster) <= 1) break;
+      var i = startIdx + Math.floor(rnd()*(N-startIdx));
+      var j = startIdx + Math.floor(rnd()*(N-startIdx));
+      if(i===j || i>=N || j>=N) continue;
+      var x = assign[i], y = assign[j];
+      assign[i] = { first:y.first, second:y.second, note:x.note };
+      assign[j] = { first:x.first, second:x.second, note:y.note };
+      if(!weekOk(assign,i) || !weekOk(assign,j)){ assign[i]=x; assign[j]=y; continue; }
+      var sc = holidayScore(assign, roster);
+      if(sc <= cur){ cur = sc; moves++; }
+      else { assign[i]=x; assign[j]=y; }
     }
     return moves;
   }
@@ -567,11 +592,18 @@
 
   var HOLIDAY_WEEK = WEEKS.map(function(w){ return holidaysInWeek(w).length>0; });
 
+  // Second Up runs on its own offset instead of trailing First Up by one, so
+  // backing up a week never rolls straight into being primary the next week.
+  // With three (3) or more techs the gap is two (2) slots; with two (2) techs
+  // there is only one (1) possible pairing.
+  function secondGap(n){ return (n >= 3) ? 2 : 1; }
+
   function genAssignments(roster){
     var order = arrangeOrder(roster);
     var n = order.length;
+    var g = secondGap(n);
     return WEEKS.map(function(_,i){
-      return { first: order[i % n], second: order[(i+1) % n], note:"" };
+      return { first: order[i % n], second: order[(i+g) % n], note:"" };
     });
   }
   // Fisher-Yates. Every ordering is equally likely.
@@ -706,15 +738,17 @@
       var conflict=(a.first===a.second);
       var prev=(i>0)? state.assign[i-1] : null;
       var repeat=!!(prev && (prev.first===a.first || prev.second===a.second));
+      var rollup=!!(prev && prev.second===a.first);
       var isNow=(i===NOW_I);
       var isSel=(i===selectedWeek);
       var hols=holidaysInWeek(w);
       var tr=document.createElement("tr");
-      tr.className=((conflict||repeat)?"conflict ":"")+(isNow?"now ":"")+(isSel?"selweek ":"")+(hols.length?"holidayweek":"");
+      tr.className=((conflict||repeat||rollup)?"conflict ":"")+(isNow?"now ":"")+(isSel?"selweek ":"")+(hols.length?"holidayweek":"");
       tr.id="wk-"+i;
       if(isNow) tr.setAttribute("data-now","1");
       var flagMsg = conflict ? "Same tech in both roles"
-                  : (repeat ? "Same tech two weeks running" : "");
+                  : (repeat ? "Same tech two weeks running"
+                  : (rollup ? "Second Up rolls into First Up" : ""));
       var holHtml = hols.length
         ? '<div class="holrow">'+hols.map(function(h){
             return '<span class="holtag">★ '+escapeHtml(h.name)+' — '+(h.date.getMonth()+1)+'/'+h.date.getDate()+'</span>';
@@ -1003,10 +1037,11 @@
       var pi = order.indexOf(prevFirst);
       if(pi !== -1) off = (pi + 1) - startIdx;
     }
+    var g = secondGap(n);
     var at = function(i){ return order[(((i + off) % n) + n) % n]; };
     for(var i=startIdx;i<WEEKS.length;i++){
       state.assign[i].first  = at(i);
-      state.assign[i].second = at(i+1);
+      state.assign[i].second = at(i+g);
     }
     balanceHolidays(state.assign, state.roster, startIdx);
     repairAdjacency(state.assign, startIdx);
