@@ -175,9 +175,7 @@ button.btn:disabled{opacity:.5;cursor:not-allowed}
 .cal td.today{box-shadow:inset 0 0 0 2px var(--red)}
 .cal .dn{font-size:12px;color:var(--steel)}
 .cal .who{font-size:11.5px;line-height:1.3;padding:1px 3px;border-radius:2px;margin-top:2px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.who.vacation{background:#EDF6F1;border-left:3px solid var(--green)}
-.who.personal{background:#EFF3F7;border-left:3px solid var(--slate)}
-.who.sick{background:#FBF4E6;border-left:3px solid var(--brass)}
+.who.pto{background:#EDF6F1;border-left:3px solid var(--green)}
 .who.unpaid{background:#F4F6F7;border-left:3px solid var(--steel)}
 .who.tentative{opacity:.62;font-style:italic}
 .cal td.thin{height:auto}
@@ -330,8 +328,7 @@ pre{background:#F1F3F5;border:1px solid var(--line);border-radius:var(--radius);
 
 <script type="module">
 /* =========================================================================
-   1. FIREBASE CONFIG — paste your project values here
-   Firebase console → Project settings → General → Your apps → Web app
+   1. FIREBASE CONFIG
    ========================================================================= */
 const firebaseConfig = {
   apiKey: "AIzaSyA54qyjh1ljinclIOBpyikRGgu2wv_E4iM",
@@ -346,17 +343,17 @@ const firebaseConfig = {
    2. DEPARTMENT SETTINGS
    ========================================================================= */
 const HOURS_PER_DAY = 8;
+
+// One bucket. Everything a tech takes draws from PTO.
 const TYPES = [
-  { id:"vacation", label:"Vacation", tracked:true  },
-  { id:"personal", label:"Personal", tracked:true  },
-  { id:"sick",     label:"Sick",     tracked:true  },
-  { id:"unpaid",   label:"Unpaid",   tracked:false }
+  { id:"pto", label:"PTO", tracked:true }
 ];
+const PTO = "pto";
+
 // >>> CHANGE THIS to your real work email domain before you share the link. <<<
-// Only addresses on these domains can create an account.
 const ALLOWED_EMAIL_DOMAINS = ["firedefense.com"];
 
-const COVERAGE_WARN_AT = 2; // warn the manager when this many techs are off the same day
+const COVERAGE_WARN_AT = 2; // warn when this many techs are off the same day
 
 /* ========================================================================= */
 
@@ -373,9 +370,9 @@ import {
 const $  = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const typeOf = id => TYPES.find(t => t.id === id) || { id, label:id, tracked:false };
+const typeOf = id => TYPES.find(t => t.id === id) || { id, label:String(id||"PTO").toUpperCase(), tracked:false };
 
-/* ---------- date helpers (all dates are plain YYYY-MM-DD strings) ---------- */
+/* ---------- date helpers (dates are plain YYYY-MM-DD strings) ---------- */
 const d2s = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const s2d = s => { const [y,m,dd] = s.split("-").map(Number); return new Date(y, m-1, dd); };
 const todayStr = () => d2s(new Date());
@@ -390,15 +387,29 @@ function rangeDays(a, b){
   while (cur <= end && guard++ < 400){ out.push(d2s(cur)); cur.setDate(cur.getDate()+1); }
   return out;
 }
-function addDays(s, n){ const d = s2d(s); d.setDate(d.getDate()+n); return d2s(d); }
+
+/* ---------- hours and days. Stored in hours, entered and shown in days ---- */
+const fmtHours = n => (Math.round(Number(n||0)*100)/100).toString();
+const h2d = h => Math.round((Number(h||0) / HOURS_PER_DAY) * 100) / 100;
+const d2h = d => Number(d||0) * HOURS_PER_DAY;
+const fmtDays = n => h2d(n) + " d";
 
 /* ---------- state ---------- */
 let app, auth, db;
-let me = null;           // firebase auth user
-let profile = null;      // users/{uid}
-let myRequests = [];     // requests visible to me
+let me = null;
+let profile = null;
+let myRequests = [];
+let roster = [];
 let unsub = [];
-let activeTab = "request";
+let calMonth = new Date(); calMonth.setDate(1);
+let activeTab = "balances";
+let activeYear = new Date().getFullYear();
+let showArchive = false;
+
+// A settled request whose last day has passed is archived: off the working
+// list, still counted in that year's balance.
+const isArchived = r => (r.status === "approved" || r.status === "denied" || r.status === "canceled")
+                     && (r.endDate || r.startDate) < todayStr();
 
 const configured = !String(firebaseConfig.apiKey).startsWith("PASTE");
 
@@ -412,20 +423,13 @@ function toast(text, ms=2600){
 function show(id){
   ["setupView","gateView","pendingView","appView"].forEach(v => $("#"+v).classList.toggle("hide", v !== id));
 }
+function msgTo(sel, text, kind){ const el = $(sel); if (el) el.innerHTML = `<div class="msg ${kind}">${esc(text)}</div>`; }
 
 /* =========================================================================
    Boot
    ========================================================================= */
 if (!configured){
-  $("#setupSnippet").textContent =
-`const firebaseConfig = {
-  apiKey: "AIza...",
-  authDomain: "fdec-timeoff.firebaseapp.com",
-  projectId: "fdec-timeoff",
-  storageBucket: "fdec-timeoff.appspot.com",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:abc123"
-};`;
+  $("#setupSnippet").textContent = "Paste your firebaseConfig values into this file.";
   show("setupView");
 } else {
   app  = initializeApp(firebaseConfig);
@@ -455,7 +459,7 @@ function setGateMode(m){
   $("#toRegister").textContent = m === "register" ? "Back to sign in" : "Create your account";
   $("#pw").setAttribute("autocomplete", m === "register" ? "new-password" : "current-password");
   $("#gateMsg").innerHTML = m === "register"
-    ? `<div class="msg warn">Register with your work email. Your manager sets your hours after you sign up.</div>`
+    ? `<div class="msg warn">Register with your work email. Your manager sets your PTO days after you sign up.</div>`
     : "";
 }
 
@@ -503,7 +507,7 @@ function authError(e){
 
 async function onAuth(user){
   unsub.forEach(fn => fn()); unsub = [];
-  me = user; profile = null; myRequests = [];
+  me = user; profile = null; myRequests = []; roster = [];
   if (!user){ show("gateView"); $("#whoami").textContent = ""; $("#signOutBtn").classList.add("hide"); return; }
 
   $("#signOutBtn").classList.remove("hide");
@@ -513,18 +517,13 @@ async function onAuth(user){
   catch(e){ gateMsg("Cannot reach the database: " + e.message, "err"); show("gateView"); return; }
 
   if (!snap.exists()){
-    // First sign-in: create a tech profile with zero balances for the manager to fill in.
     try {
       await setDoc(ref, {
         name: pendingName || user.displayName || user.email.split("@")[0],
         email: user.email,
         role: "tech",
         active: true,
-        balances: {
-          vacation:{ allotted:0, carryover:0 },
-          personal:{ allotted:0, carryover:0 },
-          sick:    { allotted:0, carryover:0 }
-        },
+        balances: { pto: { allotted:0, carryover:0 } },
         createdAt: serverTimestamp()
       });
       snap = await getDoc(ref);
@@ -556,19 +555,63 @@ function startFeeds(){
     e => toast("Could not load requests: " + e.message, 5000)
   ));
 
+  if (isMgr){
+    unsub.push(onSnapshot(collection(db, "users"),
+      s => { roster = s.docs.map(d => ({ id:d.id, ...d.data() })).sort((a,b)=> (a.name||"").localeCompare(b.name||"")); render(); },
+      e => toast("Could not load the roster: " + e.message, 5000)
+    ));
+  }
 }
 
 /* =========================================================================
    Balance math
+
+   PTO runs on the calendar year and resets every January 1. Granted days
+   stand each year; used and pending count only requests that start in the
+   year on screen, so January 1 opens clean with nothing to run. Carryover
+   is tagged with the year it belongs to so it does not ride along forever.
+
+   Requests filed before the switch to a single bucket carry a type of
+   vacation, personal or sick. Those all count against PTO now.
    ========================================================================= */
+const drawsOnPto = r => r.type !== "unpaid";
+
+function balanceFor(user, requests, year){
+  year = year || activeYear;
+  const b = (user.balances && user.balances[PTO]) || { allotted:0, carryover:0 };
+  const carry = (Number(b.carryoverYear || 0) === year) ? Number(b.carryover || 0) : 0;
+  const total = Number(b.allotted || 0) + carry;
+  let used = 0, pending = 0;
+  for (const r of requests){
+    if (r.uid !== user.id || !drawsOnPto(r)) continue;
+    if (yearOf(r.startDate) !== year) continue;
+    if (r.status === "approved") used += Number(r.hours || 0);
+    else if (r.status === "pending") pending += Number(r.hours || 0);
+  }
+  return { total, used, pending, carry, left: total - used - pending };
+}
 function requestsForUser(uid){ return myRequests.filter(r => r.uid === uid); }
+function yearOptions(){
+  const now = new Date().getFullYear();
+  let out = "";
+  for (let y = now - 2; y <= now + 1; y++)
+    out += `<option value="${y}" ${y===activeYear?"selected":""}>${y}</option>`;
+  return out;
+}
 
 /* =========================================================================
    Tabs
    ========================================================================= */
 function tabList(){
-  const t = [{ id:"request", label:"Request time off" }];
-  if (profile.role === "manager") t.push({ id:"approvals", label:"Approvals" });
+  const t = [
+    { id:"balances", label:"My PTO" },
+    { id:"request",  label:"Request time off" }
+  ];
+  if (profile.role === "manager"){
+    t.push({ id:"approvals", label:"Approvals" });
+    t.push({ id:"calendar",  label:"Coverage" });
+    t.push({ id:"roster",    label:"Roster" });
+  }
   return t;
 }
 function buildTabs(){
@@ -576,11 +619,12 @@ function buildTabs(){
   nav.innerHTML = tabList().map(t =>
     `<button class="tab" role="tab" data-tab="${t.id}" aria-selected="${t.id===activeTab}">${t.label}</button>`
   ).join("");
-  $$("#tabs .tab").forEach(b => b.addEventListener("click", () => {
-    activeTab = b.dataset.tab;
-    $$("#tabs .tab").forEach(x => x.setAttribute("aria-selected", String(x.dataset.tab === activeTab)));
-    render(); window.scrollTo({ top:0 });
-  }));
+  $$("#tabs .tab").forEach(b => b.addEventListener("click", () => goTab(b.dataset.tab)));
+}
+function goTab(id){
+  activeTab = id;
+  $$("#tabs .tab").forEach(x => x.setAttribute("aria-selected", String(x.dataset.tab === id)));
+  render(); window.scrollTo({ top:0 });
 }
 
 /* =========================================================================
@@ -589,48 +633,163 @@ function buildTabs(){
 function render(){
   if (!profile) return;
   const v = $("#views");
+  if (activeTab === "balances")  v.innerHTML = viewBalances();
   if (activeTab === "request")   { v.innerHTML = viewRequest(); wireRequest(); }
   if (activeTab === "approvals") { v.innerHTML = viewApprovals(); wireApprovals(); }
-  wireCommonRequestButtons();
+  if (activeTab === "calendar")  { v.innerHTML = viewCalendar(); wireCalendar(); }
+  if (activeTab === "roster")    { v.innerHTML = viewRoster(); wireRoster(); }
+  wireCommon();
 }
 
-const fmtHours = n => (Math.round(Number(n||0)*100)/100).toString();
+/* ---------- My PTO ---------- */
+function viewBalances(){
+  const mine = requestsForUser(me.uid);
+  const b = balanceFor(profile, mine);
 
-function reqRow(r, mgrView){
-  const t = typeOf(r.type);
-  const span = r.startDate === r.endDate ? fmtLong(r.startDate) : `${fmtLong(r.startDate)} to ${fmtLong(r.endDate)}`;
-  const days = (Number(r.hours||0) / HOURS_PER_DAY);
-  const canCancel = !mgrView && r.status === "pending";
-  const canDecide = mgrView && r.status === "pending";
+  const upcoming = mine
+    .filter(r => (r.endDate || r.startDate) >= todayStr() && r.status !== "canceled" && r.status !== "denied")
+    .sort((a,b2) => (a.startDate||"").localeCompare(b2.startDate||""));
+  const settled  = mine.filter(r => !upcoming.includes(r))
+    .sort((a,b2) => (b2.startDate||"").localeCompare(a.startDate||""));
+  const recent   = settled.filter(r => !isArchived(r));
+  const archived = settled.filter(isArchived);
+
   return `
-  <div class="req ${esc(r.status)}">
-    <span class="stripe"></span>
-    <div class="body">
-      <div class="ttl">${mgrView ? esc(r.name) + " — " : ""}${esc(t.label)} · ${fmtHours(r.hours)} hrs (${fmtHours(days)} d)</div>
-      <div class="meta">${span}</div>
-      ${r.note ? `<div class="said">${esc(r.note)}</div>` : ""}
-      ${r.managerNote ? `<div class="said">Manager: ${esc(r.managerNote)}</div>` : ""}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>PTO on the books</h2>
+      <p class="note">One (1) day equals ${HOURS_PER_DAY} hours. Resets every January 1.</p>
+      <select id="yearPick" style="width:auto;margin-left:auto" aria-label="Year">${yearOptions()}</select>
     </div>
-    <div class="side">
-      <span class="chip ${esc(r.status)}">${r.status}</span>
-      ${canCancel ? `<button class="btn ghost small" data-cancel="${r.id}">Cancel</button>` : ""}
-      ${canDecide ? `<button class="btn small" data-approve="${r.id}">Approve</button>
-                     <button class="btn ghost small" data-deny="${r.id}">Deny</button>` : ""}
+    <div class="gauges">${gaugeHTML("PTO " + activeYear, b)}</div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Coming up</h2></div>
+    ${upcoming.length ? `<div class="reqs">${upcoming.map(r => reqRow(r, false)).join("")}</div>`
+      : `<p class="empty">Nothing scheduled. Open the request tab to put in for time off.</p>`}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>History</h2>
+      ${archived.length ? `<button class="btn ghost small" id="archBtn" style="margin-left:auto">${showArchive ? "Hide" : "Show"} ${archived.length} past</button>` : ""}
+    </div>
+    ${recent.length ? `<div class="reqs">${recent.map(r => reqRow(r, false)).join("")}</div>` : ""}
+    ${showArchive && archived.length ? `<div class="reqs">${archived.slice(0,120).map(r => reqRow(r, false)).join("")}</div>` : ""}
+    ${(!recent.length && !(showArchive && archived.length))
+      ? `<p class="empty">${archived.length ? "Past requests are hidden. Use the button above to see them." : "No past requests yet."}</p>` : ""}
+  </section>`;
+}
+
+function gaugeHTML(label, b){
+  const total = Math.max(b.total, b.used + b.pending, 1);
+  const pct = n => Math.max(0, Math.min(100, (n / total) * 100));
+  const ticks = [];
+  const days = Math.round(total / HOURS_PER_DAY);
+  if (days > 1 && days <= 40) for (let i = 1; i < days; i++) ticks.push(`<i style="left:${(i/days)*100}%"></i>`);
+  return `
+  <div class="gauge ${b.left < 0 ? "over" : ""}">
+    <div class="top">
+      <span class="name">${esc(label)}</span>
+      <span><span class="big">${h2d(b.left)}</span><span class="unit">days left</span></span>
+    </div>
+    <div class="track" role="img" aria-label="${fmtDays(b.used)} used, ${fmtDays(b.pending)} pending, ${fmtDays(b.left)} left of ${fmtDays(b.total)}">
+      <div class="seg-used" style="width:${pct(b.used)}%"></div>
+      <div class="seg-pend" style="width:${pct(b.pending)}%"></div>
+      <div class="seg-left" style="flex:1"></div>
+      <div class="ticks">${ticks.join("")}</div>
+    </div>
+    <div class="legend">
+      <span><i class="swatch sw-used"></i>${fmtDays(b.used)} used</span>
+      <span><i class="swatch sw-pend"></i>${fmtDays(b.pending)} pending</span>
+      <span><i class="swatch sw-left"></i>${fmtDays(b.total)} granted</span>
     </div>
   </div>`;
 }
 
-function wireCommonRequestButtons(){
+/* ---------- request rows ---------- */
+function reqRow(r, mgrView){
+  const span = r.startDate === r.endDate ? fmtLong(r.startDate) : `${fmtLong(r.startDate)} to ${fmtLong(r.endDate)}`;
+  const canCancel = !mgrView && r.status === "pending";
+  const handled = r.decidedBy ? esc(r.decidedBy) : "";
+  const kind = r.type === "unpaid" ? "Unpaid" : "PTO";
+  return `
+  <div class="req ${esc(r.status)}">
+    <span class="stripe"></span>
+    <div class="body">
+      <div class="ttl">${mgrView ? esc(r.name) + " — " : ""}${kind} · ${fmtDays(r.hours)} (${fmtHours(r.hours)} hrs)</div>
+      <div class="meta">${span}</div>
+      ${r.note ? `<div class="said">${esc(r.note)}</div>` : ""}
+      ${r.managerNote ? `<div class="said">Manager: ${esc(r.managerNote)}</div>` : ""}
+      ${handled ? `<div class="meta">Last handled by ${handled}</div>` : ""}
+    </div>
+    <div class="side">
+      <span class="chip ${esc(r.status)}">${r.status}</span>
+      ${canCancel ? `<button class="btn ghost small" data-cancel="${r.id}">Cancel</button>` : ""}
+      ${mgrView ? `
+        ${r.status !== "approved" ? `<button class="btn small" data-approve="${r.id}">Approve</button>` : ""}
+        ${r.status !== "denied"   ? `<button class="btn ghost small" data-deny="${r.id}">Deny</button>` : ""}
+        ${r.status !== "pending"  ? `<button class="btn ghost small" data-reopen="${r.id}">Reopen</button>` : ""}
+        <button class="btn ghost small" data-hours="${r.id}">Adjust</button>
+        <button class="btn ghost small" data-del="${r.id}">Delete</button>` : ""}
+    </div>
+  </div>`;
+}
+
+function wireCommon(){
+  $$("#yearPick, #yearPickRoster").forEach(el => el.addEventListener("change", () => {
+    activeYear = Number(el.value); render();
+  }));
+  $$("#archBtn").forEach(el => el.addEventListener("click", () => { showArchive = !showArchive; render(); }));
+
   $$("[data-cancel]").forEach(b => b.addEventListener("click", async () => {
-    if (!confirm("Cancel this request and release the hours?")) return;
+    if (!confirm("Cancel this request and release the days?")) return;
     try { await updateDoc(doc(db,"requests",b.dataset.cancel), { status:"canceled", updatedAt:serverTimestamp() }); toast("Request canceled."); }
     catch(e){ toast("Could not cancel: " + e.message, 5000); }
   }));
   $$("[data-approve]").forEach(b => b.addEventListener("click", () => decide(b.dataset.approve, "approved")));
   $$("[data-deny]").forEach(b => b.addEventListener("click", () => decide(b.dataset.deny, "denied")));
+
+  // Put a decided request back in the queue.
+  $$("[data-reopen]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Put this back to pending? The days go back to being held rather than charged.")) return;
+    try {
+      await updateDoc(doc(db,"requests",b.dataset.reopen), {
+        status:"pending", managerNote:"", decidedBy: profile.name, decidedAt:null, updatedAt: serverTimestamp()
+      });
+      toast("Reopened. It is back in the approvals queue.");
+    } catch(e){ toast("Could not reopen: " + e.message, 5000); }
+  }));
+
+  // Correct the days charged when a tech came back early.
+  $$("[data-hours]").forEach(b => b.addEventListener("click", async () => {
+    const r = myRequests.find(x => x.id === b.dataset.hours);
+    if (!r) return;
+    const raw = prompt(`Days to charge for ${r.name}?\n\nCurrently ${fmtDays(r.hours)}. Half days are 0.5. The dates on the coverage calendar do not change.`, String(h2d(r.hours)));
+    if (raw === null) return;
+    const days = Number(raw);
+    if (!isFinite(days) || days <= 0) return toast("Enter a number greater than zero (0).", 4000);
+    try {
+      await updateDoc(doc(db,"requests",r.id), { hours: d2h(days), decidedBy: profile.name, updatedAt: serverTimestamp() });
+      toast(`Charged time set to ${days} d.`);
+    } catch(e){ toast("Could not save: " + e.message, 5000); }
+  }));
+
+  // Remove a request outright.
+  $$("[data-del]").forEach(b => b.addEventListener("click", async () => {
+    const r = myRequests.find(x => x.id === b.dataset.del);
+    if (!r) return;
+    if (!confirm(`Delete ${r.name}'s request for ${fmtShort(r.startDate)}? This cannot be undone and the days return to their balance.`)) return;
+    try { await deleteDoc(doc(db,"requests",r.id)); toast("Request deleted."); }
+    catch(e){ toast("Could not delete: " + e.message, 5000); }
+  }));
 }
+
 async function decide(id, status){
-  const note = prompt(status === "approved" ? "Note for the tech (optional):" : "Reason for denial (optional):", "");
+  const prior = myRequests.find(x => x.id === id);
+  if (prior && prior.status !== "pending" && !confirm(`Change this from ${prior.status} to ${status}?`)) return;
+  const note = prompt(status === "approved" ? "Note for the tech (optional):" : "Reason for denial (optional):", (prior && prior.managerNote) || "");
   if (note === null) return;
   try {
     await updateDoc(doc(db,"requests",id), {
@@ -641,41 +800,25 @@ async function decide(id, status){
 }
 
 /* ---------- Request form ---------- */
-let formDays = {}; // { "2026-09-14": 8 }
-let formStart = todayStr(), formEnd = todayStr(), formType = "vacation";
+let formDays = {};
+let formStart = todayStr(), formEnd = todayStr();
 
 function viewRequest(){
-  const opts = TYPES.map(t => `<option value="${t.id}" ${t.id===formType?"selected":""}>${t.label}</option>`).join("");
-  const mine = requestsForUser(me.uid);
-  const upcoming = mine
-    .filter(r => (r.endDate || r.startDate) >= todayStr() && r.status !== "canceled" && r.status !== "denied")
-    .sort((a,b) => (a.startDate||"").localeCompare(b.startDate||""));
-  const past = mine.filter(r => !upcoming.includes(r));
   return `
   <section class="panel">
     <div class="panel-head">
-      <h2>Request time off</h2>
+      <h2>Request PTO</h2>
       <p class="note">Submit at least two (2) weeks out where applicable, so routes can be rescheduled.</p>
     </div>
     <div id="formMsg"></div>
     <div class="row two">
       <div class="field">
-        <label for="fType">Type</label>
-        <select id="fType">${opts}</select>
-      </div>
-      <div class="field">
         <label for="fStart">First day off</label>
         <input id="fStart" type="date" value="${formStart}">
       </div>
-    </div>
-    <div class="row two">
       <div class="field">
         <label for="fEnd">Last day off</label>
         <input id="fEnd" type="date" value="${formEnd}">
-      </div>
-      <div class="field">
-        <label>Total hours</label>
-        <input id="fTotal" type="text" value="0" disabled>
       </div>
     </div>
 
@@ -683,6 +826,11 @@ function viewRequest(){
       <label>Hours per day</label>
       <div class="daylist" id="fDays"></div>
       <p class="hint">Set a day to four (4) hours for a half day, or zero (0) to skip it. Weekends default to zero (0).</p>
+    </div>
+
+    <div class="field">
+      <label>Total</label>
+      <input id="fTotal" type="text" value="0" disabled>
     </div>
 
     <div class="field">
@@ -695,24 +843,11 @@ function viewRequest(){
       <button class="btn primary" id="fSubmit">Submit request</button>
       <button class="btn ghost" id="fClear">Clear</button>
     </div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head"><h2>Coming up</h2></div>
-    ${upcoming.length ? `<div class="reqs">${upcoming.map(r => reqRow(r, false)).join("")}</div>`
-      : `<p class="empty">Nothing scheduled yet.</p>`}
-  </section>
-
-  <section class="panel">
-    <div class="panel-head"><h2>Past requests</h2></div>
-    ${past.length ? `<div class="reqs">${past.slice(0,30).map(r => reqRow(r, false)).join("")}</div>`
-      : `<p class="empty">No past requests.</p>`}
   </section>`;
 }
 
 function wireRequest(){
   const rebuild = () => {
-    formType  = $("#fType").value;
     formStart = $("#fStart").value || todayStr();
     formEnd   = $("#fEnd").value || formStart;
     if (formEnd < formStart){ formEnd = formStart; $("#fEnd").value = formEnd; }
@@ -738,8 +873,15 @@ function wireRequest(){
   };
   const paintTotals = () => {
     const total = Object.values(formDays).reduce((a,b) => a + Number(b||0), 0);
-    $("#fTotal").value = `${fmtHours(total)} hrs (${fmtHours(total/HOURS_PER_DAY)} days)`;
+    $("#fTotal").value = `${fmtDays(total)} (${fmtHours(total)} hrs)`;
+    const yr = yearOf(formStart);
+    const b = balanceFor(profile, requestsForUser(me.uid), yr);
+    const after = b.left - total;
     let html = "";
+    if (after < 0) html = `<div class="msg err">This puts you ${fmtDays(Math.abs(after))} past your ${yr} PTO balance. Submit only if your manager already approved going negative.</div>`;
+    else if (after < HOURS_PER_DAY) html = `<div class="msg warn">This leaves ${fmtDays(after)} of PTO for the rest of ${yr}.</div>`;
+    else html = `<div class="msg ok">Leaves ${fmtDays(after)} of PTO after approval.</div>`;
+
     const overlap = myRequests.filter(r =>
       r.uid === me.uid && r.status !== "canceled" && r.status !== "denied" &&
       !(r.endDate < formStart || r.startDate > formEnd));
@@ -747,7 +889,7 @@ function wireRequest(){
     $("#fCheck").innerHTML = html;
   };
 
-  ["fType","fStart","fEnd"].forEach(id => $("#"+id).addEventListener("change", () => { formDays = {}; rebuild(); }));
+  ["fStart","fEnd"].forEach(id => $("#"+id).addEventListener("change", () => { formDays = {}; rebuild(); }));
   $("#fClear").addEventListener("click", () => { formDays = {}; formStart = formEnd = todayStr(); render(); });
   $("#fSubmit").addEventListener("click", submitRequest);
   rebuild();
@@ -764,7 +906,7 @@ async function submitRequest(){
       uid: me.uid,
       name: profile.name,
       email: profile.email || me.email,
-      type: formType,
+      type: PTO,
       startDate: days[0].date,
       endDate: days[days.length-1].date,
       days,
@@ -776,22 +918,22 @@ async function submitRequest(){
     });
     formDays = {};
     toast("Request submitted. Your manager sees it now.");
-    render();
-    window.scrollTo({ top: 0 });
+    goTab("balances");
   } catch(e){
     msgTo("#formMsg", "Could not submit: " + e.message, "err");
     btn.disabled = false; btn.textContent = "Submit request";
   }
 }
-function msgTo(sel, text, kind){ const el = $(sel); if (el) el.innerHTML = `<div class="msg ${kind}">${esc(text)}</div>`; }
 
 /* ---------- Approvals ---------- */
 function viewApprovals(){
   const pending = myRequests.filter(r => r.status === "pending")
     .sort((a,b) => (a.startDate||"").localeCompare(b.startDate||""));
-  const decided = myRequests.filter(r => r.status !== "pending").slice(0, 60);
+  const settled  = myRequests.filter(r => r.status !== "pending");
+  const decided  = settled.filter(r => !isArchived(r)).slice(0, 60);
+  const archived = settled.filter(isArchived);
+  const conflicts = coverageConflicts();
 
-  const conflicts = coverageConflicts(pending);
   return `
   <section class="panel">
     <div class="panel-head">
@@ -806,13 +948,26 @@ function viewApprovals(){
   <section class="panel">
     <div class="panel-head">
       <h2>Decided</h2>
-      <button class="btn ghost small" id="exportBtn">Export approved time to CSV</button>
+      <p class="note">Dates still current or ahead.</p>
+      <button class="btn ghost small" id="exportBtn" style="margin-left:auto">Export approved time to CSV</button>
     </div>
     ${decided.length ? `<div class="reqs">${decided.map(r => reqRow(r, true)).join("")}</div>`
-      : `<p class="empty">No decisions logged yet.</p>`}
+      : `<p class="empty">Nothing decided with dates still ahead.</p>`}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Archive</h2>
+      <p class="note">${archived.length} request${archived.length===1?"":"s"} whose dates have passed. Still counted in the balances.</p>
+      <button class="btn ghost small" id="archBtn" style="margin-left:auto">${showArchive ? "Hide" : "Show"} archive</button>
+    </div>
+    ${showArchive
+      ? (archived.length ? `<div class="reqs">${archived.slice(0,120).map(r => reqRow(r, true)).join("")}</div>`
+                         : `<p class="empty">Nothing archived yet.</p>`)
+      : ""}
   </section>`;
 }
-function coverageConflicts(list){
+function coverageConflicts(){
   const counts = {};
   for (const r of myRequests){
     if (r.status === "denied" || r.status === "canceled") continue;
@@ -823,16 +978,174 @@ function coverageConflicts(list){
 }
 function wireApprovals(){
   $("#exportBtn")?.addEventListener("click", () => {
-    const rows = [["Name","Type","Start","End","Hours","Days","Status","Decided by","Note"]];
+    const rows = [["Name","Start","End","Days","Hours","Status","Decided by","Note"]];
     myRequests.filter(r => r.status === "approved").forEach(r => rows.push([
-      r.name, typeOf(r.type).label, r.startDate, r.endDate, r.hours,
-      (r.hours/HOURS_PER_DAY).toFixed(2), r.status, r.decidedBy || "", r.note || ""
+      r.name, r.startDate, r.endDate, h2d(r.hours), r.hours, r.status, r.decidedBy || "", r.note || ""
     ]));
     const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
     const a = document.createElement("a");
-    a.href = url; a.download = `fdec-approved-time-off-${todayStr()}.csv`; a.click();
+    a.href = url; a.download = `fdec-pto-approved-${todayStr()}.csv`; a.click();
     URL.revokeObjectURL(url);
+  });
+}
+
+/* ---------- Coverage calendar ---------- */
+function viewCalendar(){
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  const first = new Date(y, m, 1);
+  const start = new Date(first); start.setDate(1 - first.getDay());
+  const cells = [];
+  for (let i = 0; i < 42; i++){ const d = new Date(start); d.setDate(start.getDate()+i); cells.push(d2s(d)); }
+
+  const byDate = {};
+  for (const r of myRequests){
+    if (r.status === "denied" || r.status === "canceled") continue;
+    for (const d of (r.days || [])){
+      if (!d.hours) continue;
+      (byDate[d.date] ||= []).push({ name:r.name, type:r.type, hours:d.hours, status:r.status });
+    }
+  }
+  const head = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => `<th>${d}</th>`).join("");
+  let body = "";
+  for (let w = 0; w < 6; w++){
+    const week = cells.slice(w*7, w*7+7);
+    if (week.every(s => s2d(s).getMonth() !== m)) continue;
+    body += "<tr>" + week.map(s => {
+      const out = s2d(s).getMonth() !== m;
+      const list = (byDate[s] || []).map(p =>
+        `<span class="who ${p.type === "unpaid" ? "unpaid" : "pto"} ${p.status==="pending"?"tentative":""}" title="${esc(p.name)} · ${p.hours} hrs · ${p.status}">${esc(String(p.name).split(" ")[0])}${p.hours < HOURS_PER_DAY ? " ½" : ""}</span>`
+      ).join("");
+      return `<td class="${out?"out":""} ${s===todayStr()?"today":""}"><div class="dn">${s2d(s).getDate()}</div>${list}</td>`;
+    }).join("") + "</tr>";
+  }
+  return `
+  <section class="panel">
+    <div class="calbar">
+      <button class="btn ghost small" id="prevMo">Previous</button>
+      <span class="mo">${calMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</span>
+      <button class="btn ghost small" id="nextMo">Next</button>
+      <button class="btn ghost small" id="thisMo">Today</button>
+    </div>
+    <table class="cal"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+    <div class="legend" style="margin-top:12px">
+      <span>Italic names are still pending</span>
+      <span>½ marks a partial day</span>
+    </div>
+  </section>`;
+}
+function wireCalendar(){
+  $("#prevMo").addEventListener("click", () => { calMonth.setMonth(calMonth.getMonth()-1); render(); });
+  $("#nextMo").addEventListener("click", () => { calMonth.setMonth(calMonth.getMonth()+1); render(); });
+  $("#thisMo").addEventListener("click", () => { calMonth = new Date(); calMonth.setDate(1); render(); });
+}
+
+/* ---------- Roster ---------- */
+function viewRoster(){
+  const rows = roster.map(u => {
+    const b = balanceFor(u, myRequests);
+    return `<tr>
+      <td><strong>${esc(u.name)}</strong><div class="hint">${esc(u.email || "")}</div></td>
+      <td>
+        <select data-uid="${u.id}" data-field="role">
+          <option value="tech" ${u.role==="tech"?"selected":""}>Technician</option>
+          <option value="manager" ${u.role==="manager"?"selected":""}>Manager</option>
+        </select>
+      </td>
+      <td>
+        <input type="number" step="0.5" min="0" value="${h2d(u.balances?.[PTO]?.allotted)}" data-uid="${u.id}" data-field="allotted" style="max-width:74px">
+      </td>
+      <td>
+        <input type="number" step="0.5" min="0" value="${h2d(u.balances?.[PTO]?.carryover)}" data-uid="${u.id}" data-field="carryover" style="max-width:74px">
+      </td>
+      <td class="hint">${fmtDays(b.used)} used<br>${fmtDays(b.left)} left</td>
+      <td>
+        <select data-uid="${u.id}" data-field="active">
+          <option value="true" ${u.active!==false?"selected":""}>Active</option>
+          <option value="false" ${u.active===false?"selected":""}>Inactive</option>
+        </select>
+      </td>
+    </tr>`;
+  }).join("");
+
+  return `
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Roster and PTO allotments</h2>
+      <p class="note">Enter days. One (1) day equals ${HOURS_PER_DAY} hours, a half day equals ${HOURS_PER_DAY/2}. Used and left shown for ${activeYear}.</p>
+      <select id="yearPickRoster" style="width:auto;margin-left:auto" aria-label="Year">${yearOptions()}</select>
+    </div>
+    ${roster.length ? `<div class="tblwrap"><table class="grid">
+      <thead><tr>
+        <th>Tech</th><th>Role</th>
+        <th>PTO granted (days)</th>
+        <th>Carryover into ${activeYear} (days)</th>
+        <th>${activeYear}</th><th>Status</th>
+      </tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+      : `<p class="empty">No accounts yet. Techs appear here after they register and sign in once.</p>`}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Year-end rollover</h2>
+      <p class="note">Run once in January. The reset itself needs nothing from you.</p>
+    </div>
+    <p class="hint" style="margin-bottom:12px">
+      Carries each tech's unused ${activeYear - 1} PTO into ${activeYear}, up to the cap you set.
+      Leave the cap at zero (0) for use-it-or-lose-it. This overwrites the carryover column above.
+    </p>
+    <div class="field" style="max-width:220px">
+      <label for="cap_pto">Carryover cap (days)</label>
+      <input id="cap_pto" type="number" min="0" step="0.5" value="0">
+    </div>
+    <div id="rollMsg"></div>
+    <button class="btn" id="rolloverBtn">Roll unused PTO into ${activeYear}</button>
+  </section>`;
+}
+
+async function runRollover(){
+  const from = activeYear - 1, to = activeYear;
+  const cap = d2h($("#cap_pto")?.value || 0);
+  const techs = roster.filter(u => u.active !== false);
+  if (!techs.length) return msgTo("#rollMsg", "No active techs on the roster.", "err");
+  if (!confirm(`Roll unused ${from} PTO into ${to} for ${techs.length} tech(s)? This overwrites the carryover column.`)) return;
+
+  const btn = $("#rolloverBtn"); btn.disabled = true; btn.innerHTML = 'Working <span class="spin"></span>';
+  const lines = []; let failed = 0;
+  for (const u of techs){
+    const b = balanceFor(u, myRequests, from);
+    const carried = Math.max(0, Math.min(b.left, cap));
+    try {
+      await updateDoc(doc(db,"users",u.id), {
+        [`balances.${PTO}.carryover`]: carried,
+        [`balances.${PTO}.carryoverYear`]: to
+      });
+      if (carried > 0) lines.push(`${u.name}: ${fmtDays(carried)}`);
+    } catch(e){ failed++; }
+  }
+  btn.disabled = false; btn.textContent = `Roll unused PTO into ${to}`;
+  msgTo("#rollMsg", failed
+    ? `Finished with ${failed} error(s). Check your connection and run it again.`
+    : (lines.length ? `Carried into ${to} — ${lines.join("; ")}.` : `Nothing to carry. Every balance starts ${to} at the granted days.`),
+    failed ? "err" : "ok");
+}
+
+function wireRoster(){
+  $("#rolloverBtn")?.addEventListener("click", runRollover);
+  $$('#views input[data-field], #views select[data-field]').forEach(el => {
+    el.addEventListener("change", async () => {
+      const uid = el.dataset.uid, field = el.dataset.field;
+      let patch;
+      if (field === "role") patch = { role: el.value };
+      else if (field === "active") patch = { active: el.value === "true" };
+      else {
+        patch = { [`balances.${PTO}.${field}`]: d2h(el.value) };
+        if (field === "carryover") patch[`balances.${PTO}.carryoverYear`] = activeYear;
+      }
+      try { await updateDoc(doc(db,"users",uid), patch); toast("Saved."); }
+      catch(e){ toast("Could not save: " + e.message, 5000); }
+    });
   });
 }
 

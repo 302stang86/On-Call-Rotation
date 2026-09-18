@@ -108,7 +108,9 @@
   .role2 select{border-left:4px solid var(--navy);}
   input.note{font-family:inherit;font-size:13px;color:#333;width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:#fff;}
   input.note::placeholder{color:#aab1bd;}
-  tr.conflict td{background:var(--red-soft)!important;}
+  /* No fill on flagged rows. The red flag text under the dropdown carries the
+     warning instead, so the schedule stays clean to read and to print. */
+  tr.conflict td{background:transparent;}
   .flag{color:var(--red);font-weight:700;font-size:11px;display:block;margin-top:3px;}
 
   tr.now td{background:var(--now)!important;}
