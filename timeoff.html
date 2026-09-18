@@ -401,8 +401,7 @@ let profile = null;
 let myRequests = [];
 let roster = [];
 let unsub = [];
-let calMonth = new Date(); calMonth.setDate(1);
-let activeTab = "balances";
+let activeTab = "request";
 let activeYear = new Date().getFullYear();
 let showArchive = false;
 
@@ -603,13 +602,9 @@ function yearOptions(){
    Tabs
    ========================================================================= */
 function tabList(){
-  const t = [
-    { id:"balances", label:"My PTO" },
-    { id:"request",  label:"Request time off" }
-  ];
+  const t = [{ id:"request", label:"Request time off" }];
   if (profile.role === "manager"){
     t.push({ id:"approvals", label:"Approvals" });
-    t.push({ id:"calendar",  label:"Coverage" });
     t.push({ id:"roster",    label:"Roster" });
   }
   return t;
@@ -633,80 +628,13 @@ function goTab(id){
 function render(){
   if (!profile) return;
   const v = $("#views");
-  if (activeTab === "balances")  v.innerHTML = viewBalances();
   if (activeTab === "request")   { v.innerHTML = viewRequest(); wireRequest(); }
   if (activeTab === "approvals") { v.innerHTML = viewApprovals(); wireApprovals(); }
-  if (activeTab === "calendar")  { v.innerHTML = viewCalendar(); wireCalendar(); }
   if (activeTab === "roster")    { v.innerHTML = viewRoster(); wireRoster(); }
   wireCommon();
 }
 
-/* ---------- My PTO ---------- */
-function viewBalances(){
-  const mine = requestsForUser(me.uid);
-  const b = balanceFor(profile, mine);
 
-  const upcoming = mine
-    .filter(r => (r.endDate || r.startDate) >= todayStr() && r.status !== "canceled" && r.status !== "denied")
-    .sort((a,b2) => (a.startDate||"").localeCompare(b2.startDate||""));
-  const settled  = mine.filter(r => !upcoming.includes(r))
-    .sort((a,b2) => (b2.startDate||"").localeCompare(a.startDate||""));
-  const recent   = settled.filter(r => !isArchived(r));
-  const archived = settled.filter(isArchived);
-
-  return `
-  <section class="panel">
-    <div class="panel-head">
-      <h2>PTO on the books</h2>
-      <p class="note">One (1) day equals ${HOURS_PER_DAY} hours. Resets every January 1.</p>
-      <select id="yearPick" style="width:auto;margin-left:auto" aria-label="Year">${yearOptions()}</select>
-    </div>
-    <div class="gauges">${gaugeHTML("PTO " + activeYear, b)}</div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head"><h2>Coming up</h2></div>
-    ${upcoming.length ? `<div class="reqs">${upcoming.map(r => reqRow(r, false)).join("")}</div>`
-      : `<p class="empty">Nothing scheduled. Open the request tab to put in for time off.</p>`}
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>History</h2>
-      ${archived.length ? `<button class="btn ghost small" id="archBtn" style="margin-left:auto">${showArchive ? "Hide" : "Show"} ${archived.length} past</button>` : ""}
-    </div>
-    ${recent.length ? `<div class="reqs">${recent.map(r => reqRow(r, false)).join("")}</div>` : ""}
-    ${showArchive && archived.length ? `<div class="reqs">${archived.slice(0,120).map(r => reqRow(r, false)).join("")}</div>` : ""}
-    ${(!recent.length && !(showArchive && archived.length))
-      ? `<p class="empty">${archived.length ? "Past requests are hidden. Use the button above to see them." : "No past requests yet."}</p>` : ""}
-  </section>`;
-}
-
-function gaugeHTML(label, b){
-  const total = Math.max(b.total, b.used + b.pending, 1);
-  const pct = n => Math.max(0, Math.min(100, (n / total) * 100));
-  const ticks = [];
-  const days = Math.round(total / HOURS_PER_DAY);
-  if (days > 1 && days <= 40) for (let i = 1; i < days; i++) ticks.push(`<i style="left:${(i/days)*100}%"></i>`);
-  return `
-  <div class="gauge ${b.left < 0 ? "over" : ""}">
-    <div class="top">
-      <span class="name">${esc(label)}</span>
-      <span><span class="big">${h2d(b.left)}</span><span class="unit">days left</span></span>
-    </div>
-    <div class="track" role="img" aria-label="${fmtDays(b.used)} used, ${fmtDays(b.pending)} pending, ${fmtDays(b.left)} left of ${fmtDays(b.total)}">
-      <div class="seg-used" style="width:${pct(b.used)}%"></div>
-      <div class="seg-pend" style="width:${pct(b.pending)}%"></div>
-      <div class="seg-left" style="flex:1"></div>
-      <div class="ticks">${ticks.join("")}</div>
-    </div>
-    <div class="legend">
-      <span><i class="swatch sw-used"></i>${fmtDays(b.used)} used</span>
-      <span><i class="swatch sw-pend"></i>${fmtDays(b.pending)} pending</span>
-      <span><i class="swatch sw-left"></i>${fmtDays(b.total)} granted</span>
-    </div>
-  </div>`;
-}
 
 /* ---------- request rows ---------- */
 function reqRow(r, mgrView){
@@ -738,7 +666,7 @@ function reqRow(r, mgrView){
 }
 
 function wireCommon(){
-  $$("#yearPick, #yearPickRoster").forEach(el => el.addEventListener("change", () => {
+  $$("#yearPickRoster").forEach(el => el.addEventListener("change", () => {
     activeYear = Number(el.value); render();
   }));
   $$("#archBtn").forEach(el => el.addEventListener("click", () => { showArchive = !showArchive; render(); }));
@@ -804,6 +732,14 @@ let formDays = {};
 let formStart = todayStr(), formEnd = todayStr();
 
 function viewRequest(){
+  const mine = requestsForUser(me.uid);
+  const upcoming = mine
+    .filter(r => (r.endDate || r.startDate) >= todayStr() && r.status !== "canceled" && r.status !== "denied")
+    .sort((a,b) => (a.startDate||"").localeCompare(b.startDate||""));
+  const settled  = mine.filter(r => !upcoming.includes(r))
+    .sort((a,b) => (b.startDate||"").localeCompare(a.startDate||""));
+  const recent   = settled.filter(r => !isArchived(r));
+  const archived = settled.filter(isArchived);
   return `
   <section class="panel">
     <div class="panel-head">
@@ -843,6 +779,23 @@ function viewRequest(){
       <button class="btn primary" id="fSubmit">Submit request</button>
       <button class="btn ghost" id="fClear">Clear</button>
     </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Coming up</h2></div>
+    ${upcoming.length ? `<div class="reqs">${upcoming.map(r => reqRow(r, false)).join("")}</div>`
+      : `<p class="empty">Nothing scheduled yet.</p>`}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>History</h2>
+      ${archived.length ? `<button class="btn ghost small" id="archBtn" style="margin-left:auto">${showArchive ? "Hide" : "Show"} ${archived.length} past</button>` : ""}
+    </div>
+    ${recent.length ? `<div class="reqs">${recent.map(r => reqRow(r, false)).join("")}</div>` : ""}
+    ${showArchive && archived.length ? `<div class="reqs">${archived.slice(0,120).map(r => reqRow(r, false)).join("")}</div>` : ""}
+    ${(!recent.length && !(showArchive && archived.length))
+      ? `<p class="empty">${archived.length ? "Past requests are hidden. Use the button above to see them." : "No past requests yet."}</p>` : ""}
   </section>`;
 }
 
@@ -918,7 +871,7 @@ async function submitRequest(){
     });
     formDays = {};
     toast("Request submitted. Your manager sees it now.");
-    goTab("balances");
+    render(); window.scrollTo({ top:0 });
   } catch(e){
     msgTo("#formMsg", "Could not submit: " + e.message, "err");
     btn.disabled = false; btn.textContent = "Submit request";
@@ -990,55 +943,6 @@ function wireApprovals(){
   });
 }
 
-/* ---------- Coverage calendar ---------- */
-function viewCalendar(){
-  const y = calMonth.getFullYear(), m = calMonth.getMonth();
-  const first = new Date(y, m, 1);
-  const start = new Date(first); start.setDate(1 - first.getDay());
-  const cells = [];
-  for (let i = 0; i < 42; i++){ const d = new Date(start); d.setDate(start.getDate()+i); cells.push(d2s(d)); }
-
-  const byDate = {};
-  for (const r of myRequests){
-    if (r.status === "denied" || r.status === "canceled") continue;
-    for (const d of (r.days || [])){
-      if (!d.hours) continue;
-      (byDate[d.date] ||= []).push({ name:r.name, type:r.type, hours:d.hours, status:r.status });
-    }
-  }
-  const head = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => `<th>${d}</th>`).join("");
-  let body = "";
-  for (let w = 0; w < 6; w++){
-    const week = cells.slice(w*7, w*7+7);
-    if (week.every(s => s2d(s).getMonth() !== m)) continue;
-    body += "<tr>" + week.map(s => {
-      const out = s2d(s).getMonth() !== m;
-      const list = (byDate[s] || []).map(p =>
-        `<span class="who ${p.type === "unpaid" ? "unpaid" : "pto"} ${p.status==="pending"?"tentative":""}" title="${esc(p.name)} · ${p.hours} hrs · ${p.status}">${esc(String(p.name).split(" ")[0])}${p.hours < HOURS_PER_DAY ? " ½" : ""}</span>`
-      ).join("");
-      return `<td class="${out?"out":""} ${s===todayStr()?"today":""}"><div class="dn">${s2d(s).getDate()}</div>${list}</td>`;
-    }).join("") + "</tr>";
-  }
-  return `
-  <section class="panel">
-    <div class="calbar">
-      <button class="btn ghost small" id="prevMo">Previous</button>
-      <span class="mo">${calMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</span>
-      <button class="btn ghost small" id="nextMo">Next</button>
-      <button class="btn ghost small" id="thisMo">Today</button>
-    </div>
-    <table class="cal"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
-    <div class="legend" style="margin-top:12px">
-      <span>Italic names are still pending</span>
-      <span>½ marks a partial day</span>
-    </div>
-  </section>`;
-}
-function wireCalendar(){
-  $("#prevMo").addEventListener("click", () => { calMonth.setMonth(calMonth.getMonth()-1); render(); });
-  $("#nextMo").addEventListener("click", () => { calMonth.setMonth(calMonth.getMonth()+1); render(); });
-  $("#thisMo").addEventListener("click", () => { calMonth = new Date(); calMonth.setDate(1); render(); });
-}
 
 /* ---------- Roster ---------- */
 function viewRoster(){
